@@ -1,7 +1,8 @@
 # Person 1 — Medplum / FHIR workflow
 
-Everything in this lane is written, typechecked, and logic-verified. The one
-thing left needs a human with a browser: creating the Medplum project.
+**This lane has been run end-to-end against a real Medplum server** (v5.1.27,
+self-hosted locally) — real Bots, real Subscriptions, real Consent lifecycle.
+The full demo script works. What's left is pointing it at *your* project.
 
 ```bash
 npm install
@@ -10,6 +11,28 @@ npm run selftest      # 27 checks, no credentials needed — run this first
 
 If `selftest` is green, the consent state machine is correct. Everything
 below is about connecting it to a real server.
+
+## Verified live
+
+The complete demo path, driven entirely by Medplum automation:
+
+```
+ServiceRequest created
+  → Subscription fired
+  → prepare-consent Bot ran
+  → Task(requested) + Consent(draft) + QuestionnaireResponse(in-progress) + Provenance
+Teach-back written with "tissue-treated: contradicted"
+  → Subscription fired
+  → assess-teachback Bot ran
+  → education Task → on-hold, clinician Task created (urgent), Consent HELD at draft
+Corrected teach-back written, QuestionnaireResponse → completed
+  → assess-teachback Bot ran
+  → education Task → completed, escalation → completed, Consent → ACTIVE
+```
+
+`getConsentSession`, `listComprehensionConcepts`, and `listConsentEvents` were
+all confirmed against this live data — the event stream returned 8 events
+spanning all three bot invocations, each carrying its real FHIR resource body.
 
 ---
 
@@ -24,10 +47,10 @@ below is about connecting it to a real server.
 | assess-teachback Bot | ✅ written, logic verified |
 | Consent state machine | ✅ verified — 27 selftest checks |
 | `Provenance` on every state change | ✅ verified |
-| Seed / reset scripts | ✅ written, unrun against live server |
-| Subscriptions wiring | ✅ written, unrun against live server |
-| Read models for both UIs | ✅ written, unrun against live server |
-| **Live Medplum project** | ❌ **needs a human — see below** |
+| Seed / reset scripts | ✅ verified against a live server |
+| Bot deploy + Subscriptions wiring | ✅ verified against a live server |
+| Read models for both UIs | ✅ verified against a live server |
+| **Your team's Medplum project** | ❌ **needs a human — see below** |
 
 ---
 
@@ -62,39 +85,76 @@ Watch Project → Task / Consent / QuestionnaireResponse in the console.
 
 ---
 
+## Two project settings you must enable first
+
+Both of these were found the hard way. Neither is a code problem, and both
+are silent-ish failures.
+
+**1. Bots must be enabled on the project.** Otherwise `$deploy` returns
+`Bots not enabled`. On a hosted medplum.com project this is a plan/feature
+setting — if you don't see Bots in the console, contact Medplum (they enable
+it for hackathons readily).
+
+**2. The ClientApplication needs *admin* on its ProjectMembership.** Bot
+creation goes through `admin/projects/{id}/bot`, which requires an admin
+membership; without it you get a bare `Forbidden`. In the console:
+Admin → Clients → your client → check **Admin**.
+
+If you'd rather not grant that, create both bots by hand in the console
+instead — the names must match exactly, or `setup:subscriptions` won't find
+them:
+
+- `consentloop-prepare-consent`
+- `consentloop-assess-teachback`
+
+(Defined in `packages/fhir/src/constants.ts`.)
+
 ## What will probably break, and what to do
 
-**`deploy:bots` fails.** This is the single unverified API surface in the
-repo — no one has run `Bot/$deploy` against a live project. The script tells
-you whether *creating* the Bot or *uploading the code* failed, and prints
-Medplum's actual `OperationOutcome` text rather than a raw error.
-
-Either way the bot logic is fine (selftest proves it). Fallback:
+**`deploy:bots` fails.** The script distinguishes *creating* the Bot from
+*uploading the code* and prints Medplum's real `OperationOutcome` text. Both
+paths are verified working, so a failure here is almost certainly one of the
+two project settings above. Fallback that always works:
 
 ```bash
 npm run deploy:bots -- --print
 ```
 
 Copy the output, paste into Project → Bots → (bot) → Editor, hit Deploy.
-Two minutes, zero API guessing.
 
-**`setup:subscriptions` says it can't find a Bot.** It looks bots up by name.
-If you created them by hand, the names must match exactly:
+**Bot runtime version.** Hosted medplum.com runs `awslambda` (the default
+here); self-hosted usually runs `vmcontext`. Override with
+`MEDPLUM_BOT_RUNTIME=vmcontext` in `.env.local`. Getting this wrong fails at
+*execution* time, not deploy time.
 
-- `consentloop-prepare-consent`
-- `consentloop-assess-teachback`
-
-(Both defined in `packages/fhir/src/constants.ts`.)
-
-**`verify` fails on a search parameter.** The search params
-(`focus`, `part-of`, `source-reference`, `based-on`) are standard FHIR R4, but
-if Medplum indexes one differently, `packages/fhir/src/session.ts` is the only
-file that changes — the bots and state machine don't do their own searching.
+**The subscription fires but nothing happens.** Check
+Project → Bots → (bot) → the AuditEvent log, not the server log — bot runtime
+errors are recorded there and the Subscription job still reports
+`completed`. This is how the `exports.handler is not a function` bundling bug
+was found; it's fixed (see the footer in `scripts/deploy-bots.ts`), but the
+same diagnostic applies to anything else that goes wrong inside a bot.
 
 **Frontend can't read resources.** The browser client
 (`VITE_MEDPLUM_CLIENT_ID`) needs an AccessPolicy allowing reads on Patient,
-ServiceRequest, Task, Consent, QuestionnaireResponse, Provenance. That's a
-console step, not a code change.
+ServiceRequest, Task, Consent, QuestionnaireResponse, Provenance. Console
+step, not a code change.
+
+## FHIR gotchas already handled
+
+Recorded because they cost real debugging time and would silently re-break if
+someone "simplifies" the code:
+
+- **`Consent` requires `policy` or `policyRule`** (invariant `ppc-1`). A
+  Consent with neither is rejected outright. We set `policy[0].uri` to
+  `CONSENT_POLICY_URI`.
+- **`Consent.sourceReference` cannot point at a `ServiceRequest`.** Legal
+  targets are Consent, DocumentReference, Contract, QuestionnaireResponse.
+  Ours points at the QuestionnaireResponse, which is why prepare-consent
+  creates the QuestionnaireResponse *before* the Consent, and why Consent
+  lookups go through the QuestionnaireResponse rather than the ServiceRequest.
+- **Bots need a `ProjectMembership` to execute.** `createResource("Bot")`
+  does not create one; the admin endpoint does. Without it every invocation
+  dies with `Could not find project membership for bot`.
 
 ---
 

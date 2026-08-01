@@ -30,6 +30,7 @@ loadEnv();
 
 import { build } from "esbuild";
 import { resolve } from "node:path";
+import type { MedplumClient } from "@medplum/core";
 import type { Bot } from "@medplum/fhirtypes";
 import {
   getMedplum,
@@ -37,6 +38,17 @@ import {
   PREPARE_CONSENT_BOT_NAME,
   ASSESS_TEACHBACK_BOT_NAME,
 } from "@consentloop/fhir";
+
+/**
+ * Hosted medplum.com projects run bots on `awslambda`; a self-hosted or local
+ * server typically runs `vmcontext` instead (it's the `defaultBotRuntimeVersion`
+ * in Medplum's own server config, since awslambda needs real AWS). Deploying
+ * with the wrong one fails at execution time rather than at deploy time, which
+ * is a miserable thing to debug live, so make it explicit and overridable.
+ */
+const RUNTIME_VERSION = (process.env.MEDPLUM_BOT_RUNTIME ?? "awslambda") as
+  | "awslambda"
+  | "vmcontext";
 
 const BOTS = [
   {
@@ -62,6 +74,15 @@ async function bundle(entry: string): Promise<string> {
     platform: "node",
     target: "es2022",
     external: ["@medplum/core", "@medplum/fhirtypes"],
+    // ⚠️ esbuild's CJS output *reassigns* `module.exports`, but Medplum's
+    // bot runtime calls `exports.handler(...)` on the original `exports`
+    // object — so without this the deploy succeeds, the Subscription fires,
+    // the job reports "completed" in milliseconds, and the only trace of the
+    // failure is "exports.handler is not a function" buried in an AuditEvent.
+    // Copy the exports back onto the object the runtime actually reads.
+    footer: {
+      js: "if (typeof exports !== 'undefined' && typeof module !== 'undefined' && module.exports && exports !== module.exports) { Object.assign(exports, module.exports); }",
+    },
   });
   return result.outputFiles[0].text;
 }
@@ -81,7 +102,11 @@ async function main() {
 
   requireEnv(["MEDPLUM_CLIENT_ID", "MEDPLUM_CLIENT_SECRET"]);
   const medplum = await getMedplum();
-  console.log("→ connected to Medplum\n");
+
+  const projectId = await resolveProjectId(medplum);
+  console.log(
+    `→ connected to Medplum (project ${projectId}, bot runtime: ${RUNTIME_VERSION})\n`
+  );
 
   for (const botDef of BOTS) {
     const code = await bundle(botDef.entry);
@@ -94,12 +119,21 @@ async function main() {
 
     if (!bot) {
       try {
-        bot = await medplum.createResource<Bot>({
-          resourceType: "Bot",
-          meta: { tag: [BOT_TAG] },
+        // ⚠️ Must go through the admin endpoint, NOT createResource("Bot").
+        // A plain create makes the Bot resource but no ProjectMembership, and
+        // a bot without one cannot execute: the Subscription fires, the queue
+        // picks it up, and every attempt dies with "Could not find project
+        // membership for bot" — silently, in the server log, while the UI
+        // shows a perfectly healthy Subscription. This endpoint creates both.
+        const created = (await medplum.post(`admin/projects/${projectId}/bot`, {
           name: botDef.name,
           description: botDef.description,
-          runtimeVersion: "awslambda",
+          runtimeVersion: RUNTIME_VERSION,
+        })) as Bot;
+        bot = await medplum.updateResource<Bot>({
+          ...created,
+          resourceType: "Bot",
+          meta: { ...created.meta, tag: [BOT_TAG] },
         });
       } catch (err) {
         console.error(`\n✗ could not CREATE Bot ${botDef.name}:`, describe(err));
@@ -130,6 +164,23 @@ async function main() {
   }
 
   console.log("Next: npm run setup:subscriptions");
+}
+
+/**
+ * The project the ClientApplication belongs to. Every resource it can see
+ * carries `meta.project`, so reading back any one of them is enough — no need
+ * for an extra env var the team would have to keep in sync.
+ */
+async function resolveProjectId(medplum: MedplumClient): Promise<string> {
+  const [anyResource] = await medplum.searchResources("ClientApplication", { _count: 1 });
+  const projectId = anyResource?.meta?.project;
+  if (!projectId) {
+    throw new Error(
+      "Could not determine the project id from the authenticated client. " +
+        "Check that MEDPLUM_CLIENT_ID/SECRET belong to a real ClientApplication."
+    );
+  }
+  return projectId;
 }
 
 /** Medplum errors carry the useful detail in `outcome`, not in `message`. */

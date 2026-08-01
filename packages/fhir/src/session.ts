@@ -86,8 +86,10 @@ export async function findSessionRefs(
   const task = tasks.find((t) => !isClinicianReviewTask(t));
   if (!task) return null;
 
+  // Consent.sourceReference points at the QuestionnaireResponse, not the
+  // ServiceRequest — FHIR doesn't permit the latter as a source target.
   const consents = await medplum.searchResources("Consent", {
-    "source-reference": srRef,
+    "source-reference": `QuestionnaireResponse/${qr.id}`,
     _count: 5,
   });
   const consent = consents[0];
@@ -145,9 +147,8 @@ export async function getConsentSession(
 
   const srRef = `ServiceRequest/${serviceRequest.id}`;
 
-  const [tasks, consents, questionnaireResponses] = await Promise.all([
+  const [tasks, questionnaireResponses] = await Promise.all([
     medplum.searchResources("Task", { focus: srRef, _count: 20 }),
-    medplum.searchResources("Consent", { "source-reference": srRef, _count: 5 }),
     medplum.searchResources("QuestionnaireResponse", {
       "based-on": srRef,
       _count: 5,
@@ -155,9 +156,17 @@ export async function getConsentSession(
   ]);
 
   const task = tasks.find((t) => !isClinicianReviewTask(t));
-  const consent = consents[0];
   const qr = questionnaireResponses[0];
-  if (!task?.id || !consent?.id || !qr?.id) return null;
+  if (!task?.id || !qr?.id) return null;
+
+  // Consent hangs off the QuestionnaireResponse, so it can only be resolved
+  // once that's known — see the note in findSessionRefs.
+  const consents = await medplum.searchResources("Consent", {
+    "source-reference": `QuestionnaireResponse/${qr.id}`,
+    _count: 5,
+  });
+  const consent = consents[0];
+  if (!consent?.id) return null;
 
   const concepts = parseComprehensionConcepts(qr);
 

@@ -4,6 +4,7 @@ import {
   RUN_TAG,
   KNEE_ARTHROSCOPY_CODE,
   COMPREHENSION_QUESTIONNAIRE_URL,
+  CONSENT_POLICY_URI,
   createProvenance,
 } from "@consentloop/fhir";
 
@@ -56,6 +57,21 @@ export async function handler(
     businessStatus: { text: "Awaiting patient session" },
   });
 
+  // The QuestionnaireResponse must exist before the Consent: FHIR restricts
+  // Consent.sourceReference to Consent | DocumentReference | Contract |
+  // QuestionnaireResponse, so it cannot point at the ServiceRequest. Pointing
+  // it at the comprehension assessment is both legal and the honest reading —
+  // that assessment is what this consent derives from.
+  const questionnaireResponse = await medplum.createResource<QuestionnaireResponse>({
+    resourceType: "QuestionnaireResponse",
+    meta: { tag: [RUN_TAG] },
+    questionnaire: COMPREHENSION_QUESTIONNAIRE_URL,
+    status: "in-progress",
+    subject: { reference: patientRef },
+    basedOn: [{ reference: srRef }],
+    authored: new Date().toISOString(),
+  });
+
   const consent = await medplum.createResource<Consent>({
     resourceType: "Consent",
     meta: { tag: [RUN_TAG] },
@@ -81,17 +97,10 @@ export async function handler(
     ],
     patient: { reference: patientRef },
     dateTime: new Date().toISOString(),
-    sourceReference: { reference: srRef },
-  });
-
-  const questionnaireResponse = await medplum.createResource<QuestionnaireResponse>({
-    resourceType: "QuestionnaireResponse",
-    meta: { tag: [RUN_TAG] },
-    questionnaire: COMPREHENSION_QUESTIONNAIRE_URL,
-    status: "in-progress",
-    subject: { reference: patientRef },
-    basedOn: [{ reference: srRef }],
-    authored: new Date().toISOString(),
+    // Required by FHIR invariant ppc-1 — a Consent with neither `policy` nor
+    // `policyRule` is rejected outright.
+    policy: [{ uri: CONSENT_POLICY_URI }],
+    sourceReference: { reference: `QuestionnaireResponse/${questionnaireResponse.id}` },
   });
 
   await createProvenance(medplum, {

@@ -19,6 +19,13 @@ export const SUBSCRIPTION_TAG = { system: `${NS}/tags`, code: "subscription" };
 
 export const COMPREHENSION_QUESTIONNAIRE_URL = `${NS}/fhir/Questionnaire/comprehension`;
 
+/**
+ * FHIR invariant ppc-1 requires every Consent to carry either `policy` or
+ * `policyRule` — a Consent with neither is rejected by the server. This is
+ * the policy our procedure-consent workflow operates under.
+ */
+export const CONSENT_POLICY_URI = `${NS}/policy/informed-procedure-consent`;
+
 /** Coding system for each teach-back concept's answer (ComprehensionStatus). */
 export const COMPREHENSION_STATUS_SYSTEM = `${NS}/fhir/CodeSystem/comprehension-status`;
 
