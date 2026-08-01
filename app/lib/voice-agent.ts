@@ -175,6 +175,10 @@ export type VoiceToolExecutionResult =
       ok: true;
       message?: string;
       settled?: SettledVisualizationMetadata;
+      scenePreparation?: {
+        applied: true;
+        commandCount: number;
+      };
       narration?: VoiceNarrationCue;
       nextApprovedAction?: string;
       waitForPatientResponse?: true;
@@ -753,10 +757,21 @@ export const kneeArthroscopyVoiceWalkthrough: readonly VoiceWalkthroughAction[] 
     })),
 ];
 
-type VoiceVisualizationContext = Pick<
+export type VoiceVisualizationContext = Pick<
   VisualizationSnapshot,
   "viewMode" | "visualState" | "stepId"
->;
+> &
+  Partial<
+    Pick<VisualizationSnapshot, "activeRegionId" | "procedureId">
+  >;
+
+export type VoiceVisualizationPlan =
+  | {
+      ok: true;
+      commands: VisualizationCommand[];
+      preparationApplied: boolean;
+    }
+  | { ok: false; error: string };
 
 const kneeDetailStepIds = new Set(
   procedureStepIds.filter(
@@ -771,78 +786,187 @@ function isSettledKneeDetail(
   return (
     context.viewMode === "knee" &&
     context.visualState !== "entering-procedure" &&
+    (context.procedureId === undefined ||
+      context.procedureId === "knee-arthroscopy") &&
     context.stepId !== null &&
     kneeDetailStepIds.has(context.stepId)
   );
 }
 
+const showBodyOverviewCommand: VisualizationCommand = {
+  type: "SHOW_BODY_OVERVIEW",
+  view: "three-quarter",
+};
+const focusRightKneeCommand: VisualizationCommand = {
+  type: "FOCUS_BODY_REGION",
+  regionId: "right-knee",
+};
+
+function hasRightKneeFocus(
+  context: VoiceVisualizationContext | null,
+): boolean {
+  return Boolean(
+    context &&
+      context.viewMode === "body" &&
+      context.stepId === "affected-knee" &&
+      (context.activeRegionId === undefined ||
+        context.activeRegionId === "right-knee"),
+  );
+}
+
+function isWholeBodyOverview(
+  context: VoiceVisualizationContext | null,
+): boolean {
+  return Boolean(
+    context &&
+      context.viewMode === "body" &&
+      context.stepId === "body-overview",
+  );
+}
+
+function planRightKneeFocus(
+  context: VoiceVisualizationContext | null,
+): VisualizationCommand[] {
+  return isWholeBodyOverview(context)
+    ? [focusRightKneeCommand]
+    : [showBodyOverviewCommand, focusRightKneeCommand];
+}
+
+function planKneeProcedureEntry(
+  context: VoiceVisualizationContext | null,
+): VisualizationCommand[] {
+  if (context && isSettledKneeDetail(context)) return [];
+
+  return [
+    ...(hasRightKneeFocus(context) ? [] : planRightKneeFocus(context)),
+    { type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" },
+  ];
+}
+
 /**
- * Enforces the patient-facing voice walkthrough independently of renderer
- * validation. Manual and compatibility commands may revisit a settled detail,
- * while the agent must narrate the configured sequence in order.
+ * Turns one validated voice request into an application-owned visual plan.
+ * Deepgram requests the destination; this planner safely restores any required
+ * body, region-focus, and detail prerequisites before applying it. The renderer
+ * still validates and acknowledges every command in the returned sequence.
  */
+export function planVoiceVisualizationCommands(
+  call: VisualizationVoiceToolCall,
+  context: VoiceVisualizationContext | null,
+): VoiceVisualizationPlan {
+  const requestedCommand = voiceToolToVisualizationCommand(call);
+
+  if (call.name === "show_body_overview") {
+    return {
+      ok: true,
+      commands: [requestedCommand],
+      preparationApplied: false,
+    };
+  }
+
+  if (call.name === "return_to_overview") {
+    return {
+      ok: true,
+      commands: [requestedCommand],
+      preparationApplied: false,
+    };
+  }
+
+  if (call.name === "focus_body_region") {
+    const commands = planRightKneeFocus(context);
+    return {
+      ok: true,
+      commands,
+      preparationApplied: commands.length > 1,
+    };
+  }
+
+  if (call.name === "enter_procedure") {
+    if (context && isSettledKneeDetail(context)) {
+      return {
+        ok: true,
+        commands: [
+          {
+            type: "PLAY_PROCEDURE_STEP",
+            procedureId: "knee-arthroscopy",
+            stepId: "normal-anatomy",
+          },
+        ],
+        preparationApplied: false,
+      };
+    }
+    const commands = planKneeProcedureEntry(context);
+    return {
+      ok: true,
+      commands,
+      preparationApplied: commands.length > 1,
+    };
+  }
+
+  if (call.name === "play_procedure_step") {
+    if (call.arguments.stepId === "completion") {
+      return {
+        ok: false,
+        error:
+          "Completion is controlled by the application after the patient's teach-back is assessed.",
+      };
+    }
+
+    if (call.arguments.stepId === "body-overview") {
+      return {
+        ok: true,
+        commands: [showBodyOverviewCommand],
+        preparationApplied: false,
+      };
+    }
+    if (call.arguments.stepId === "affected-knee") {
+      const commands = planRightKneeFocus(context);
+      return {
+        ok: true,
+        commands,
+        preparationApplied: commands.length > 1,
+      };
+    }
+    if (call.arguments.stepId === "normal-anatomy") {
+      const commands = planKneeProcedureEntry(context);
+      return {
+        ok: true,
+        commands:
+          commands.length > 0
+            ? commands
+            : [
+                {
+                  type: "PLAY_PROCEDURE_STEP",
+                  procedureId: "knee-arthroscopy",
+                  stepId: "normal-anatomy",
+                },
+              ],
+        preparationApplied: commands.length > 1,
+      };
+    }
+
+    const entryCommands = planKneeProcedureEntry(context);
+    return {
+      ok: true,
+      commands: [...entryCommands, requestedCommand],
+      preparationApplied: entryCommands.length > 0,
+    };
+  }
+
+  const entryCommands = planKneeProcedureEntry(context);
+  return {
+    ok: true,
+    commands: [...entryCommands, requestedCommand],
+    preparationApplied: entryCommands.length > 0,
+  };
+}
+
+/** Backward-compatible guard for callers that only need a rejection reason. */
 export function getVoiceVisualizationSequenceError(
   call: VisualizationVoiceToolCall,
   context: VoiceVisualizationContext | null,
 ): string | undefined {
-  if (call.name === "show_body_overview" || call.name === "return_to_overview") {
-    return undefined;
-  }
-  if (!context) {
-    return "Show the whole-body overview before requesting another visual action.";
-  }
-
-  if (call.name === "focus_body_region") {
-    return context.viewMode === "body" && context.stepId === "body-overview"
-      ? undefined
-      : "Return to the whole-body overview before highlighting the right knee.";
-  }
-
-  if (call.name === "enter_procedure") {
-    return context.viewMode === "body" && context.stepId === "affected-knee"
-      ? undefined
-      : "Highlight the right knee and wait for that transition before entering the procedure.";
-  }
-
-  if (call.name === "play_procedure_step") {
-    if (["body-overview", "affected-knee", "normal-anatomy"].includes(call.arguments.stepId)) {
-      return "Use the dedicated overview, focus, and procedure-entry tools for the first three walkthrough actions.";
-    }
-    if (call.arguments.stepId === "completion") {
-      return "Completion is controlled by the application after the patient's teach-back is assessed.";
-    }
-    if (context.viewMode !== "knee" || context.visualState === "entering-procedure") {
-      return "Wait for the detailed knee handoff to settle before playing a procedure step.";
-    }
-    // A misconception can surface at any point after the detailed knee has
-    // settled. Allow that explicit clarification branch without weakening the
-    // ordered default walkthrough; the comparison itself still leads only to
-    // patient teach-back, and completion remains application-controlled.
-    if (
-      call.arguments.stepId === "misconception-comparison" &&
-      isSettledKneeDetail(context)
-    ) {
-      return undefined;
-    }
-    if (
-      context.stepId === "misconception-comparison" &&
-      call.arguments.stepId === "patient-teachback"
-    ) {
-      return undefined;
-    }
-    const currentIndex = kneeArthroscopyVoiceWalkthrough.findIndex(
-      (action) => action.stepId === context.stepId,
-    );
-    const expected = kneeArthroscopyVoiceWalkthrough[currentIndex + 1];
-    return expected?.toolName === "play_procedure_step" &&
-      expected.arguments.stepId === call.arguments.stepId
-      ? undefined
-      : `The next approved narrated step is ${expected?.stepId ?? "patient teach-back; wait for the patient"}.`;
-  }
-
-  return context.viewMode === "knee" && context.visualState !== "entering-procedure"
-    ? undefined
-    : "Enter the settled detailed-knee view before changing a structure or visual mode.";
+  const plan = planVoiceVisualizationCommands(call, context);
+  return plan.ok ? undefined : plan.error;
 }
 
 function narrationStepIdForCall(
@@ -971,8 +1095,8 @@ ${visualStructureFacts}
 
 USING THE INTERFACE TOOLS
 - Use open_consent_section when the patient asks to see overview, anatomy, choices/options, timeline/recovery, costs, teach-back, or review.
-- Use show_body_overview to show the whole person in front, back, left, right, or three-quarter view. The right knee must still be part of the whole-body scene when you call focus_body_region with right-knee.
-- Never call enter_procedure until focus_body_region has succeeded. focus_body_region is the visible knee-highlight phase; enter_procedure is the later camera zoom and detailed-knee transition. Do not combine or reverse them.
+- Use show_body_overview to show the whole person in front, back, left, right, or three-quarter view. Use focus_body_region with right-knee to request the visible knee-highlight destination.
+- Visual requests are destination-based. If the viewer is in another state, call the desired visual tool once; the application will safely restore the required whole-body, right-knee highlight, and detailed-knee prerequisites in order before returning success. Do not manually retry prerequisite tools after a successful response.
 - Use enter_procedure with knee-arthroscopy before beginning the detailed knee walkthrough. Use play_procedure_step only with an approved step for knee-arthroscopy: ${procedureStepIds.join(", ")}.
 - Use highlight_structure only for an approved structure: ${structureIds.join(", ")}. Use blue for orientation, orange for tissue that may be treated, faint red comparison only for the whole joint or a risk area, and green only for an explained/completed visual state.
 - Use set_visual_mode only when the explanation benefits from normal, transparent, xray, or isolated context. Use return_to_overview to pull back to the whole person after the explanation.
@@ -980,7 +1104,7 @@ USING THE INTERFACE TOOLS
 - inspect_current_visual is read-only and may be called at any point. If visualContext.ready is false, say the model is not ready rather than guessing. If visualContext.viewerVisible is false, say you are describing the last reported anatomy scene and offer to reopen it.
 - Use focus_option to bring one option into focus, but still frame it neutrally and compare equally when asked.
 - Every visual function response is a transition barrier. Do not speak its step narration until the response says ok=true and settled.transitionCompleted=true. The response's narration.text is the single approved utterance; speak it exactly and do not invent visual findings.
-- Issue exactly ONE visual function per function-call request. Never batch visual functions, never request the next visual while the prior function is pending, and never skip a walkthrough action. After its transition settles, finish that step's narration before requesting the next action.
+- Issue exactly ONE visual function per function-call request. Never batch visual functions or request the next visual while the prior function is pending. One destination request may internally prepare several safe scene prerequisites; wait for the single response, then describe only its final settled scene. During the full narrated walkthrough, keep using the numbered actions in order.
 - If a visual tool fails, do not request a later walkthrough action. Say the view could not be changed and continue verbally or offer on-screen controls.
 - Never invent an identifier, procedure step, structure, region, color, or visual mode. Never describe camera coordinates, mesh names, materials, or rendering internals.
 - request_human only after the patient directly requests a person or explicitly confirms your offer. Their request itself counts as confirmation. Never claim a message was sent or an appointment was booked; the demo only prepares a handoff request.

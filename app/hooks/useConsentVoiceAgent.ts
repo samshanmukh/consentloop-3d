@@ -279,6 +279,10 @@ export function useConsentVoiceAgent({
 
       if (!result.ok && mountedRef.current) {
         setError(`The requested interface action failed: ${result.error}`);
+      } else if (visualizationCall && mountedRef.current) {
+        // A recovered destination request replaces any stale sequencing error
+        // shown by an earlier visual call in the same live voice session.
+        setError(null);
       }
     },
     [clearAudioDoneTimer],

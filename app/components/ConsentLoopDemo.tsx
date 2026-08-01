@@ -55,9 +55,8 @@ import {
   getCurrentVisualContext,
   getNextApprovedVoiceAction,
   getVoiceNarrationCue,
-  getVoiceVisualizationSequenceError,
   isVisualizationVoiceToolCall,
-  voiceToolToVisualizationCommand,
+  planVoiceVisualizationCommands,
   type VoiceToolCall,
   type VoiceToolExecutionResult,
   type VisualizationVoiceToolCall,
@@ -1327,12 +1326,34 @@ export function ConsentLoopDemo() {
     call: VoiceToolCall,
   ): Promise<VoiceToolExecutionResult> => {
     if (isVisualizationVoiceToolCall(call)) {
-      const sequenceError = getVoiceVisualizationSequenceError(
+      const plan = planVoiceVisualizationCommands(
         call,
         visualizationStateRef.current,
       );
-      if (sequenceError) return { ok: false, error: sequenceError };
-      return executeVisualization(voiceToolToVisualizationCommand(call), call);
+      if (!plan.ok) return { ok: false, error: plan.error };
+
+      let finalResult: VoiceToolExecutionResult = {
+        ok: false,
+        error: "No visualization command was available.",
+      };
+      for (const [index, command] of plan.commands.entries()) {
+        const isFinalCommand = index === plan.commands.length - 1;
+        finalResult = await executeVisualization(
+          command,
+          isFinalCommand ? call : undefined,
+        );
+        if (!finalResult.ok) return finalResult;
+      }
+
+      if (!finalResult.ok || !plan.preparationApplied) return finalResult;
+      return {
+        ...finalResult,
+        message: `The viewer safely prepared the required anatomy context first. ${finalResult.message ?? "The requested visual is ready."}`,
+        scenePreparation: {
+          applied: true,
+          commandCount: plan.commands.length,
+        },
+      };
     }
 
     switch (call.name) {

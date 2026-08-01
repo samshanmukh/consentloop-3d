@@ -15,6 +15,7 @@ import {
   isVisualizationVoiceToolCall,
   kneeArthroscopyVoiceWalkthrough,
   normalizeVoiceToolCall,
+  planVoiceVisualizationCommands,
   reduceVoiceNarrationBarrier,
   serializeVoiceToolResult,
   voiceToolToVisualizationCommand,
@@ -60,7 +61,8 @@ test("agent configuration is grounded and exposes client-side tools only", () =>
   assert.match(consentGuidePrompt, /whole person first, blue right-knee highlight second, camera zoom\/detail third/i);
   assert.match(consentGuidePrompt, /exactly ONE visual function per function-call request/);
   assert.match(consentGuidePrompt, /settled\.transitionCompleted=true/);
-  assert.match(consentGuidePrompt, /Never call enter_procedure until focus_body_region has succeeded/);
+  assert.match(consentGuidePrompt, /Visual requests are destination-based/);
+  assert.match(consentGuidePrompt, /safely restore the required whole-body/);
   assert.match(consentGuidePrompt, /ALWAYS call inspect_current_visual before answering/);
   assert.match(consentGuidePrompt, /yellow part/);
   assert.match(consentGuidePrompt, /misconception comparison is optional/i);
@@ -101,7 +103,7 @@ test("guided walkthrough highlights the knee before zooming and advances one con
   );
 });
 
-test("voice walkthrough rejects skipped, rewound, and premature completion steps", () => {
+test("voice destinations recover their visual prerequisites while completion stays protected", () => {
   const normalizeVisual = (name: string, args: Record<string, unknown>) => {
     const normalized = normalizeVoiceToolCall(wireCall(name, args));
     assert.equal(normalized.ok, true);
@@ -116,26 +118,41 @@ test("voice walkthrough rejects skipped, rewound, and premature completion steps
     stepId: "normal-anatomy",
   };
 
-  assert.equal(
-    getVoiceVisualizationSequenceError(
-      normalizeVisual("play_procedure_step", {
-        procedureId: "knee-arthroscopy",
-        stepId: "damaged-structure",
-      }),
-      procedureContext,
-    ),
-    undefined,
+  const directStep = planVoiceVisualizationCommands(
+    normalizeVisual("play_procedure_step", {
+      procedureId: "knee-arthroscopy",
+      stepId: "access-point",
+    }),
+    procedureContext,
   );
-  assert.match(
-    getVoiceVisualizationSequenceError(
-      normalizeVisual("play_procedure_step", {
-        procedureId: "knee-arthroscopy",
-        stepId: "access-point",
-      }),
-      procedureContext,
-    ) ?? "",
-    /next approved narrated step is damaged-structure/i,
+  assert.equal(directStep.ok, true);
+  if (!directStep.ok) assert.fail("Expected a direct visual plan");
+  assert.deepEqual(directStep.commands, [
+    {
+      type: "PLAY_PROCEDURE_STEP",
+      procedureId: "knee-arthroscopy",
+      stepId: "access-point",
+    },
+  ]);
+  assert.equal(directStep.preparationApplied, false);
+
+  const fromNoScene = planVoiceVisualizationCommands(
+    normalizeVisual("play_procedure_step", {
+      procedureId: "knee-arthroscopy",
+      stepId: "damaged-structure",
+    }),
+    null,
   );
+  assert.equal(fromNoScene.ok, true);
+  if (!fromNoScene.ok) assert.fail("Expected a recovered visual plan");
+  assert.deepEqual(fromNoScene.commands.map((command) => command.type), [
+    "SHOW_BODY_OVERVIEW",
+    "FOCUS_BODY_REGION",
+    "ENTER_PROCEDURE",
+    "PLAY_PROCEDURE_STEP",
+  ]);
+  assert.equal(fromNoScene.preparationApplied, true);
+
   assert.match(
     getVoiceVisualizationSequenceError(
       normalizeVisual("play_procedure_step", {
@@ -146,19 +163,23 @@ test("voice walkthrough rejects skipped, rewound, and premature completion steps
     ) ?? "",
     /controlled by the application/i,
   );
-  assert.match(
-    getVoiceVisualizationSequenceError(
-      normalizeVisual("play_procedure_step", {
-        procedureId: "knee-arthroscopy",
-        stepId: "affected-knee",
-      }),
-      procedureContext,
-    ) ?? "",
-    /dedicated overview/i,
+
+  const firstStepAlias = planVoiceVisualizationCommands(
+    normalizeVisual("play_procedure_step", {
+      procedureId: "knee-arthroscopy",
+      stepId: "affected-knee",
+    }),
+    procedureContext,
   );
+  assert.equal(firstStepAlias.ok, true);
+  if (!firstStepAlias.ok) assert.fail("Expected an aliased focus plan");
+  assert.deepEqual(firstStepAlias.commands.map((command) => command.type), [
+    "SHOW_BODY_OVERVIEW",
+    "FOCUS_BODY_REGION",
+  ]);
 });
 
-test("misconception clarification branches only after the knee detail settles", () => {
+test("voice focus regression returns from knee detail and highlights the right knee", () => {
   const normalizeVisual = (name: string, args: Record<string, unknown>) => {
     const normalized = normalizeVoiceToolCall(wireCall(name, args));
     assert.equal(normalized.ok, true);
@@ -168,66 +189,58 @@ test("misconception clarification branches only after the knee detail settles", 
     return normalized.call;
   };
 
-  const showBody = normalizeVisual("show_body_overview", {
-    view: "three-quarter",
-  });
-  assert.equal(
-    getVoiceVisualizationSequenceError(showBody, null),
-    undefined,
-  );
-
   const focusKnee = normalizeVisual("focus_body_region", {
     regionId: "right-knee",
   });
+  const focusPlan = planVoiceVisualizationCommands(focusKnee, {
+    viewMode: "knee",
+    visualState: "procedure",
+    stepId: "damaged-structure",
+    procedureId: "knee-arthroscopy",
+    activeRegionId: "right-knee",
+  });
+  assert.equal(focusPlan.ok, true);
+  if (!focusPlan.ok) assert.fail("Expected a recovered focus plan");
+  assert.deepEqual(focusPlan.commands, [
+    { type: "SHOW_BODY_OVERVIEW", view: "three-quarter" },
+    { type: "FOCUS_BODY_REGION", regionId: "right-knee" },
+  ]);
+  assert.equal(focusPlan.preparationApplied, true);
   assert.equal(
     getVoiceVisualizationSequenceError(focusKnee, {
-      viewMode: "body",
-      visualState: "overview",
-      stepId: "body-overview",
+      viewMode: "knee",
+      visualState: "procedure",
+      stepId: "damaged-structure",
     }),
     undefined,
   );
+});
 
-  const enterProcedure = normalizeVisual("enter_procedure", {
-    procedureId: "knee-arthroscopy",
-  });
-  assert.equal(
-    getVoiceVisualizationSequenceError(enterProcedure, {
-      viewMode: "body",
-      visualState: "overview",
-      stepId: "affected-knee",
-    }),
-    undefined,
-  );
+test("misconception clarification auto-enters detail and preserves teach-back control", () => {
+  const normalizeVisual = (name: string, args: Record<string, unknown>) => {
+    const normalized = normalizeVoiceToolCall(wireCall(name, args));
+    assert.equal(normalized.ok, true);
+    if (!normalized.ok || !isVisualizationVoiceToolCall(normalized.call)) {
+      assert.fail(`Expected ${name} to be a visual call`);
+    }
+    return normalized.call;
+  };
 
   const showMisconception = normalizeVisual("play_procedure_step", {
     procedureId: "knee-arthroscopy",
     stepId: "misconception-comparison",
   });
-  assert.match(
-    getVoiceVisualizationSequenceError(showMisconception, {
-      viewMode: "body",
-      visualState: "overview",
-      stepId: "affected-knee",
-    }) ?? "",
-    /detailed knee handoff/i,
-  );
-  assert.match(
-    getVoiceVisualizationSequenceError(showMisconception, {
-      viewMode: "knee",
-      visualState: "entering-procedure",
-      stepId: "normal-anatomy",
-    }) ?? "",
-    /wait for the detailed knee handoff/i,
-  );
-  assert.equal(
-    getVoiceVisualizationSequenceError(showMisconception, {
-      viewMode: "knee",
-      visualState: "procedure",
-      stepId: "normal-anatomy",
-    }),
-    undefined,
-  );
+  const branchPlan = planVoiceVisualizationCommands(showMisconception, {
+    viewMode: "body",
+    visualState: "overview",
+    stepId: "affected-knee",
+  });
+  assert.equal(branchPlan.ok, true);
+  if (!branchPlan.ok) assert.fail("Expected a recovered comparison plan");
+  assert.deepEqual(branchPlan.commands.map((command) => command.type), [
+    "ENTER_PROCEDURE",
+    "PLAY_PROCEDURE_STEP",
+  ]);
   assert.match(
     getNextApprovedVoiceAction(showMisconception) ?? "",
     /patient-teachback/,
@@ -237,14 +250,16 @@ test("misconception clarification branches only after the knee detail settles", 
     procedureId: "knee-arthroscopy",
     stepId: "patient-teachback",
   });
-  assert.equal(
-    getVoiceVisualizationSequenceError(askTeachback, {
-      viewMode: "knee",
-      visualState: "misconception-detected",
-      stepId: "misconception-comparison",
-    }),
-    undefined,
-  );
+  const teachbackPlan = planVoiceVisualizationCommands(askTeachback, {
+    viewMode: "knee",
+    visualState: "misconception-detected",
+    stepId: "misconception-comparison",
+  });
+  assert.equal(teachbackPlan.ok, true);
+  if (!teachbackPlan.ok) assert.fail("Expected a teach-back plan");
+  assert.deepEqual(teachbackPlan.commands.map((command) => command.type), [
+    "PLAY_PROCEDURE_STEP",
+  ]);
   assert.match(
     getVoiceVisualizationSequenceError(
       normalizeVisual("play_procedure_step", {
