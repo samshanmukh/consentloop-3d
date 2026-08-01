@@ -38,6 +38,19 @@ ConsentLoop turns consent into a measurable clinical workflow.
 
 ConsentLoop assists informed-consent education and workflow management. It does not replace the clinician, provide medical advice, or independently determine whether consent is legally valid.
 
+## Interactive UI demo
+
+The repository now includes a complete synthetic patient frontend for Jordan Lee's knee-arthroscopy journey. It contains seven responsive views: overview, interactive 3D procedure, option comparison, timeline and recovery planning, cost details, teach-back, and clinician-review handoff.
+
+The 3D viewer uses a locally bundled, attributed anatomical knee model with a procedural loading fallback and arthroscopy overlays. Every voice-driven action has a manual equivalent. Person 3 can control the viewer through the versioned semantic `consentloop.viz-command.v1` browser contract; Person 1 can replace the typed demo fixtures with Medplum-backed adapters without changing the presentation components.
+
+See [Person 2 UI handoff](docs/person-2-ui-handoff.md) for the data boundaries, voice command examples, model attribution, and integration checklist.
+
+```bash
+npm install
+npm run dev
+```
+
 ## Demo procedure: knee arthroscopy
 
 The hackathon demo focuses on knee arthroscopy because it is visually understandable and supports a clear teach-back moment.
