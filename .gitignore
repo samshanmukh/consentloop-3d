@@ -26,6 +26,7 @@ next-env.d.ts
 
 # Environment and local tools
 .env*
+!.env.example
 .claude-flow/
 .vercel
 
