@@ -46,6 +46,10 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type {
+  ComprehensionConceptId,
+  ComprehensionStatus,
+} from "@consentloop/shared";
 import type { AnatomyCommand, AnatomyState } from "../lib/anatomy-commands";
 import {
   careOptions,
@@ -72,7 +76,7 @@ const KneeViewer = dynamic(
 );
 
 type VoiceState = "idle" | "listening" | "thinking" | "speaking";
-type ConceptStatus = "understood" | "partial" | "contradicted" | "not-started";
+type ConceptStatus = ComprehensionStatus;
 
 const navItems: Array<{
   id: JourneyView;
@@ -641,8 +645,8 @@ function TeachBackView({
   statuses,
   onStatus,
 }: {
-  statuses: Record<string, ConceptStatus>;
-  onStatus: (id: string, status: ConceptStatus) => void;
+  statuses: Record<ComprehensionConceptId, ConceptStatus>;
+  onStatus: (id: ComprehensionConceptId, status: ConceptStatus) => void;
 }) {
   const [answer, setAnswer] = useState("");
   const [feedback, setFeedback] = useState<"idle" | "misconception" | "corrected">("idle");
@@ -650,13 +654,13 @@ function TeachBackView({
   const submitAnswer = () => {
     const normalized = answer.toLowerCase();
     if (normalized.includes("whole knee") || normalized.includes("replac")) {
-      onStatus("target", "contradicted");
+      onStatus("tissue-treated", "contradicted");
       setFeedback("misconception");
       window.consentLoop3D?.execute({ type: "set-stage", stage: "tear" });
       return;
     }
     if (normalized.includes("meniscus") || normalized.includes("torn tissue")) {
-      onStatus("target", "understood");
+      onStatus("tissue-treated", "understood");
       setFeedback("corrected");
       window.consentLoop3D?.execute({ type: "focus", target: "meniscus" });
     }
@@ -710,7 +714,7 @@ function TeachBackView({
                   {status === "understood" ? <Check size={16} /> : status === "contradicted" ? <X size={16} /> : <span />}
                 </div>
                 <div><strong>{concept.title}</strong><span>{status.replace("-", " ")}</span><p>{concept.prompt}</p></div>
-                {concept.id !== "target" && (
+                {concept.id !== "tissue-treated" && (
                   <button onClick={() => onStatus(concept.id, "understood")}>Use demo answer</button>
                 )}
               </article>
@@ -730,7 +734,7 @@ function ReviewView({
   onNavigate,
 }: {
   preferences: Record<OptionId, Preference>;
-  statuses: Record<string, ConceptStatus>;
+  statuses: Record<ComprehensionConceptId, ConceptStatus>;
   estimateAcknowledged: boolean;
   onNavigate: (view: JourneyView) => void;
 }) {
@@ -794,10 +798,10 @@ export function ConsentLoopDemo() {
     repair: "unsure",
   });
   const [estimateAcknowledged, setEstimateAcknowledged] = useState(false);
-  const [conceptStatuses, setConceptStatuses] = useState<Record<string, ConceptStatus>>({
-    target: "understood",
-    uncertainty: "partial",
-    recovery: "not-started",
+  const [conceptStatuses, setConceptStatuses] = useState<Record<ComprehensionConceptId, ConceptStatus>>({
+    "procedure-identity": "partial",
+    "tissue-treated": "understood",
+    "risk-limitation": "not-discussed",
   });
   const timers = useRef<number[]>([]);
   const mainHeading = useRef<HTMLHeadingElement>(null);

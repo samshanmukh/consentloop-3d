@@ -32,11 +32,14 @@ import {
 import {
   translateVizCommand,
   vizCapabilities,
+  sceneCommandToVizCommand,
+  sharedSceneCommandEvent,
   vizCommandEvent,
   vizResultEvent,
   type VizCommandV1,
   type VizResultV1,
 } from "../lib/viz-contract";
+import type { SceneCommand } from "@consentloop/shared";
 
 const stageLabels: Record<ProcedureStage, string> = {
   overview: "Healthy orientation",
@@ -600,21 +603,28 @@ export function KneeViewer({
     const handleVizCommand = (event: Event) => {
       void executeViz((event as CustomEvent<VizCommandV1>).detail);
     };
+    const handleSharedSceneCommand = (event: Event) => {
+      const command = (event as CustomEvent<SceneCommand>).detail;
+      if (command?.type) void executeViz(sceneCommandToVizCommand(command));
+    };
 
     window.addEventListener(anatomyCommandEvent, handleCommand);
     window.addEventListener(vizCommandEvent, handleVizCommand);
+    window.addEventListener(sharedSceneCommandEvent, handleSharedSceneCommand);
     window.consentLoop3D = {
       execute,
       getState: () => stateRef.current,
     };
     window.consentLoopViz = {
       execute: executeViz,
+      executeSceneCommand: (command) => executeViz(sceneCommandToVizCommand(command)),
       capabilities: vizCapabilities,
     };
 
     return () => {
       window.removeEventListener(anatomyCommandEvent, handleCommand);
       window.removeEventListener(vizCommandEvent, handleVizCommand);
+      window.removeEventListener(sharedSceneCommandEvent, handleSharedSceneCommand);
       if (window.consentLoop3D?.execute === execute) {
         delete window.consentLoop3D;
       }

@@ -46,6 +46,11 @@ Keep the UI's safety invariants when wiring real data:
 - stale clinical or financial snapshots must be invalidated before signature;
 - unresolved critical teach-back concepts keep consent blocked.
 
+The demo uses the canonical `ComprehensionConceptId` and
+`ComprehensionStatus` types from `@consentloop/shared`, including
+`not-discussed`. The UI may keep richer view state, but the persistence adapter
+should write Person 1's shared concept IDs directly.
+
 ## Person 3: voice-to-3D integration
 
 The viewer accepts a versioned semantic command rather than a raw transcript or
@@ -90,6 +95,25 @@ Valid targets and aliases are published at
 manifest and send only supported semantic IDs. Unknown targets and unsupported
 actions are rejected. Duplicate command IDs are not applied twice.
 
+Person 3 can also send the frozen `SceneCommand` type from
+`@consentloop/shared` without knowing the versioned renderer shape:
+
+```ts
+await window.consentLoopViz?.executeSceneCommand({
+  type: "focus",
+  target: "meniscus",
+});
+
+window.dispatchEvent(
+  new CustomEvent("consentloop:scene-command", {
+    detail: { type: "animate", animation: "arthroscope insertion" },
+  }),
+);
+```
+
+`sceneCommandToVizCommand` in `app/lib/viz-contract.ts` is the explicit adapter
+between the frozen team contract and the renderer's versioned capabilities.
+
 Visualization commands are intentionally unable to choose a procedure, accept
 a cost estimate, schedule an appointment, or sign consent.
 
@@ -110,7 +134,8 @@ not a diagnostic or surgical-planning tool.
 npm run dev
 npm run lint
 npm test
+npm run selftest
+./node_modules/.bin/tsc --noEmit --incremental false
 ```
 
 The production build targets the existing Vinext/Cloudflare Worker scaffold.
-

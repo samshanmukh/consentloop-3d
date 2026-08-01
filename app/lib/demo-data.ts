@@ -1,4 +1,8 @@
 import type { ComponentType } from "react";
+import type {
+  ComprehensionConceptId,
+  ComprehensionStatus,
+} from "@consentloop/shared";
 
 export type JourneyView =
   | "overview"
@@ -149,26 +153,32 @@ export const costBreakdown = [
   { label: "Post-op therapy", value: "$960", patient: "$240", status: "12 visits assumed" },
 ];
 
-export const teachBackConcepts = [
+export const teachBackConcepts: Array<{
+  id: ComprehensionConceptId;
+  title: string;
+  prompt: string;
+  status: ComprehensionStatus;
+  response: string;
+}> = [
   {
-    id: "target",
+    id: "tissue-treated",
     title: "What part is treated?",
     prompt: "Explain which part of your knee may be trimmed or repaired.",
     status: "understood",
     response: "The torn meniscus—not my whole knee—is the area being treated.",
   },
   {
-    id: "uncertainty",
-    title: "What is decided during surgery?",
-    prompt: "Why can’t the surgeon promise trim versus repair today?",
+    id: "procedure-identity",
+    title: "What procedure is planned?",
+    prompt: "Describe what arthroscopy does and what is decided during surgery.",
     status: "partial",
     response: "They need to see whether the torn tissue is healthy enough to repair.",
   },
   {
-    id: "recovery",
-    title: "How could recovery change?",
-    prompt: "Describe how recovery may differ if the meniscus is repaired.",
-    status: "not-started",
+    id: "risk-limitation",
+    title: "What is one important limitation?",
+    prompt: "Describe how the uncertain treatment choice may change recovery.",
+    status: "not-discussed",
     response: "",
   },
 ];

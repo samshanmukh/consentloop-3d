@@ -45,10 +45,16 @@ The repository now includes a complete synthetic patient frontend for Jordan Lee
 The 3D viewer uses a locally bundled, attributed anatomical knee model with a procedural loading fallback and arthroscopy overlays. Every voice-driven action has a manual equivalent. Person 3 can control the viewer through the versioned semantic `consentloop.viz-command.v1` browser contract; Person 1 can replace the typed demo fixtures with Medplum-backed adapters without changing the presentation components.
 
 See [Person 2 UI handoff](docs/person-2-ui-handoff.md) for the data boundaries, voice command examples, model attribution, and integration checklist.
+For the live Medplum setup and workflow commands, see the [Person 1 runbook](RUNBOOK-person1.md).
 
 ```bash
 npm install
 npm run dev
+
+# Before pushing
+npm run lint
+npm test
+npm run selftest
 ```
 
 ## Demo procedure: knee arthroscopy
@@ -169,7 +175,7 @@ The 3D visualization is clinically linked, not decorative. Each required compreh
 | Nearby structures | Reveal adjacent cartilage, ligaments, and nerves |
 | Alternative treatment | Return to the untreated state and compare options |
 
-The MVP uses `<model-viewer>` and a GLB model for fast browser rendering, animation, hotspots, camera transitions, and material changes. React Three Fiber or Three.js can replace it later for clipping planes, exploded layers, and advanced shaders.
+The implemented MVP uses React Three Fiber, Drei, and Three.js with a locally bundled GLB model, semantic hotspots, camera controls, procedural arthroscopy overlays, and an accessible non-speech control surface. Person 3 can send either the team's shared `SceneCommand` contract or the richer versioned `consentloop.viz-command.v1` commands; an explicit adapter keeps raw transcripts and mesh names out of the renderer.
 
 ## Voice and comprehension loop
 
@@ -297,37 +303,36 @@ Each event can expand to show the underlying Medplum resource.
 - Alternate procedure packs
 - AR model viewing on supported mobile devices
 
-## Proposed stack
+## Implemented stack and integration targets
 
 | Layer | Technology |
 | --- | --- |
-| Frontend | React, TypeScript, Vite |
-| UI | Mantine and Medplum React components |
-| 3D | `<model-viewer>` with GLB; Three.js as an upgrade path |
+| Frontend | Next App Router on Vinext, React 19, TypeScript, Vite |
+| Runtime | Cloudflare Worker and Sites-compatible build |
+| UI | Responsive glassmorphic CSS and Lucide icons |
+| 3D | React Three Fiber, Drei, Three.js, and an attributed knee GLB |
 | Clinical platform | Medplum FHIR, Bots, Subscriptions, AccessPolicy |
-| Voice | Deepgram streaming STT and Aura TTS |
-| Retrieval | Moss semantic search |
-| Eligibility | Stedi test-mode healthcare API |
-| Validation | Zod and FHIR resource validation |
+| Voice | Manual demo controls now; Deepgram streaming STT and Aura TTS integration target |
+| Retrieval | Moss semantic search integration target |
+| Eligibility | Optional Stedi test-mode healthcare API |
+| Validation | ESLint, TypeScript, rendered HTML tests, production build, and credential-free FHIR self-test |
 
-## Suggested repository structure
+## Repository structure
 
 ```text
 consentloop-3d/
-├── apps/
-│   ├── patient/             # Voice-guided 3D patient experience
-│   └── clinician/           # Review queue and FHIR event stream
+├── app/                     # Patient UI, 3D viewer, demo data, and command adapters
 ├── bots/
 │   ├── prepare-consent/     # ServiceRequest subscription handler
 │   └── assess-teachback/    # QuestionnaireResponse evaluator
 ├── packages/
-│   ├── fhir/                # Profiles, fixtures, and resource helpers
-│   ├── procedure-content/   # Approved explanations and concept rubric
-│   └── three-d/             # Scenes, hotspots, and camera commands
-├── assets/
-│   └── models/              # Licensed GLB assets and attribution
-├── scripts/
-│   └── seed-demo.ts         # Synthetic demo patient and procedure
+│   ├── fhir/                # FHIR fixtures, helpers, and consent state machine
+│   └── shared/              # Frozen cross-lane contracts and concept definitions
+├── public/models/knee/      # Licensed GLB asset and attribution
+├── scripts/                 # Seed, deploy, verify, reset, and self-test workflows
+├── worker/                  # Cloudflare/Vinext Worker entry point
+├── docs/                    # UI and integration handoff notes
+├── RUNBOOK-person1.md       # Live Medplum setup and troubleshooting
 └── README.md
 ```
 

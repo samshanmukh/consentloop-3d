@@ -1,7 +1,9 @@
 import type { AnatomyCommand, AnatomyTarget, ProcedureStage } from "./anatomy-commands";
+import type { SceneCommand } from "@consentloop/shared";
 
 export const vizCommandEvent = "consentloop:viz-command";
 export const vizResultEvent = "consentloop:viz-result";
+export const sharedSceneCommandEvent = "consentloop:scene-command";
 
 export type VizTargetId =
   | "anatomy.knee"
@@ -124,12 +126,83 @@ export function translateVizCommand(command: VizCommandV1): AnatomyCommand[] {
   return translateAtomicAction(command.action);
 }
 
+function resolveSharedTarget(target: string): VizTargetId {
+  const normalized = target.toLowerCase();
+  if (normalized.includes("incision") || normalized.includes("portal")) {
+    return "procedure.portals";
+  }
+  if (normalized.includes("tear") || normalized.includes("damage")) {
+    return "anatomy.meniscus.tear";
+  }
+  if (normalized.includes("meniscus") || normalized.includes("cartilage")) {
+    return "anatomy.meniscus.medial";
+  }
+  if (normalized.includes("ligament") || normalized.includes("acl") || normalized.includes("pcl")) {
+    return "anatomy.ligament.cruciate";
+  }
+  return "anatomy.knee";
+}
+
+function resolveSharedAnimation(animation: string): NonNullable<
+  Extract<VizAtomicAction, { type: "procedure.preview" }>["stepId"]
+> {
+  const normalized = animation.toLowerCase();
+  if (normalized.includes("scope") || normalized.includes("insert")) return "scope";
+  if (normalized.includes("treat") || normalized.includes("repair") || normalized.includes("trim")) return "treatment";
+  if (normalized.includes("recover")) return "recovery";
+  if (normalized.includes("tear") || normalized.includes("damage")) return "tear";
+  return "orientation";
+}
+
+/** Adapts Person 1's frozen team contract to the versioned viewer contract. */
+export function sceneCommandToVizCommand(
+  command: SceneCommand,
+  source: VizCommandV1["source"] = { kind: "voice" },
+): VizCommandV1 {
+  let action: VizAction;
+
+  switch (command.type) {
+    case "focus":
+      action = {
+        type: "target.isolate",
+        targets: [resolveSharedTarget(command.target)],
+        contextOpacity: 0.2,
+      };
+      break;
+    case "highlight":
+      action = {
+        type: "target.select",
+        targets: [resolveSharedTarget(command.target)],
+      };
+      break;
+    case "animate":
+      action = {
+        type: "procedure.preview",
+        procedureId: "knee-arthroscopy",
+        stepId: resolveSharedAnimation(command.animation),
+        autoplay: true,
+      };
+      break;
+    case "reset":
+      action = { type: "scene.reset" };
+      break;
+  }
+
+  return {
+    schema: "consentloop.viz-command.v1",
+    id: `scene-${globalThis.crypto.randomUUID()}`,
+    issuedAt: new Date().toISOString(),
+    source,
+    action,
+  };
+}
+
 declare global {
   interface Window {
     consentLoopViz?: {
       execute: (command: VizCommandV1) => Promise<VizResultV1>;
+      executeSceneCommand: (command: SceneCommand) => Promise<VizResultV1>;
       capabilities: typeof vizCapabilities;
     };
   }
 }
-
