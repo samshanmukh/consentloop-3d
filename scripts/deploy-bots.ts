@@ -6,16 +6,24 @@
  *   npm run deploy:bots            # create/update + deploy both bots
  *   npm run deploy:bots -- --print # bundle only, print sizes, deploy nothing
  *
- * ─── VERIFY THE $deploy SHAPE AGAINST MEDPLUM'S DOCS BEFORE TRUSTING IT ───
- * Bot creation + the `Bot/$deploy` operation are the one part of this repo
- * nobody has exercised against a live project yet. If `$deploy` 400s or the
- * body shape below is stale, this file — and only this file — is what
- * changes; check app.medplum.com's "Bots" documentation and the
- * medplum-demo-bots example repo for the current contract.
+ * ─── THE ONE UNVERIFIED SURFACE IN THIS REPO ─────────────────────────────
+ * Checked against the installed SDK: `post(fhirUrl(...))` matches Medplum's
+ * own documented pattern for custom operations, `runtimeVersion: 'awslambda'`
+ * is a valid Bot value, and `$deploy`'s `{ code }` body matches
+ * `Bot.executableCode`'s role. But no one has run this against a live project,
+ * so treat a failure here as expected-and-recoverable, not as broken code.
  *
- * Fallback if this keeps failing under time pressure: run with `--print`,
- * copy the bundled code, and paste it into Project > Bots > (bot) > Editor
- * in the console manually — same result, zero API guessing.
+ * If `$deploy` fails, the deploy step is the ONLY thing affected — the bot
+ * logic itself is already proven by `npm run selftest`. Two fallbacks, in
+ * order of preference:
+ *
+ *   1. `npm run deploy:bots -- --print`, copy the bundled output, paste into
+ *      Project > Bots > (bot) > Editor in the Medplum console, click Deploy.
+ *      Same result, zero API guessing. Takes about two minutes.
+ *   2. If Bot creation itself fails, create both bots by hand in the console
+ *      (names must match PREPARE_CONSENT_BOT_NAME / ASSESS_TEACHBACK_BOT_NAME
+ *      in packages/fhir/src/constants.ts, or setup:subscriptions won't find
+ *      them), then use fallback 1 for the code.
  */
 import { loadEnv, requireEnv } from "./load-env";
 loadEnv();
@@ -85,27 +93,57 @@ async function main() {
     let bot: Bot | undefined = existing[0];
 
     if (!bot) {
-      bot = await medplum.createResource<Bot>({
-        resourceType: "Bot",
-        meta: { tag: [BOT_TAG] },
-        name: botDef.name,
-        description: botDef.description,
-        runtimeVersion: "awslambda",
-      });
+      try {
+        bot = await medplum.createResource<Bot>({
+          resourceType: "Bot",
+          meta: { tag: [BOT_TAG] },
+          name: botDef.name,
+          description: botDef.description,
+          runtimeVersion: "awslambda",
+        });
+      } catch (err) {
+        console.error(`\n✗ could not CREATE Bot ${botDef.name}:`, describe(err));
+        console.error(
+          "  Most likely your ClientApplication lacks permission to create Bots, or the\n" +
+            "  project is on a plan where bots must be created from the console. See\n" +
+            "  fallback 2 in this file's header — create it by hand with this exact name."
+        );
+        throw err;
+      }
       console.log(`created Bot ${botDef.name} → ${bot.id}`);
     } else {
       console.log(`found existing Bot ${botDef.name} → ${bot.id}`);
     }
 
-    await medplum.post(medplum.fhirUrl("Bot", bot.id!, "$deploy"), { code }, "application/json");
+    try {
+      await medplum.post(medplum.fhirUrl("Bot", bot.id!, "$deploy"), { code }, "application/json");
+    } catch (err) {
+      console.error(`\n✗ could not DEPLOY code to ${botDef.name}:`, describe(err));
+      console.error(
+        `  The Bot resource exists (${bot.id}) — only the code upload failed, and the bot\n` +
+          "  logic itself is already proven by `npm run selftest`. Use fallback 1 in this\n" +
+          "  file's header: rerun with --print and paste into the console editor."
+      );
+      throw err;
+    }
     console.log(`deployed ${botDef.name}\n`);
   }
 
-  if (!printOnly) console.log("Next: npm run setup:subscriptions");
+  console.log("Next: npm run setup:subscriptions");
+}
+
+/** Medplum errors carry the useful detail in `outcome`, not in `message`. */
+function describe(err: unknown): string {
+  const outcome = (err as { outcome?: { issue?: { details?: { text?: string }; diagnostics?: string }[] } })?.outcome;
+  const issues = outcome?.issue
+    ?.map((i) => i.details?.text ?? i.diagnostics)
+    .filter(Boolean)
+    .join("; ");
+  return issues || (err instanceof Error ? err.message : String(err));
 }
 
 main().catch((err) => {
-  console.error("\n❌ bot deploy failed:", err);
+  console.error("\n❌ bot deploy failed:", describe(err));
   console.error("See the warning banner at the top of scripts/deploy-bots.ts for the manual fallback.");
   process.exit(1);
 });
