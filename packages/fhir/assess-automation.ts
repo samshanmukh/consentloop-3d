@@ -3,6 +3,7 @@ import type { MedplumClient } from '@medplum/core';
 import type { Bot, Subscription } from '@medplum/fhirtypes';
 import { ASSESS_BOT_IDENTIFIER, ASSESS_SUBSCRIPTION_TAG, DEMO_TAG, IDENTIFIER_SYSTEM, TAG_SYSTEM } from '../shared/index.js';
 import { identifierQuery } from './demo-resources.js';
+import { syncSubscription } from './subscription.js';
 
 export function assessmentBotResource(): Bot {
   return {
@@ -27,7 +28,7 @@ export function assessmentSubscriptionResource(botId: string): Subscription {
 
 export async function bundleAssessmentBot(): Promise<string> {
   const result = await build({
-    entryPoints: ['bots/assess-teachback/index.ts'], bundle: true, write: false, platform: 'node', target: 'node22', format: 'esm',
+    entryPoints: ['bots/assess-teachback/index.ts'], bundle: true, write: false, platform: 'node', target: 'node22', format: 'cjs',
     external: ['@medplum/core', '@medplum/fhirtypes'],
   });
   const output = result.outputFiles[0]?.text;
@@ -39,7 +40,8 @@ export async function deployAssessmentAutomation(medplum: MedplumClient): Promis
   const bot = await medplum.upsertResource(assessmentBotResource(), identifierQuery(ASSESS_BOT_IDENTIFIER));
   const code = await bundleAssessmentBot();
   await medplum.post(medplum.fhirUrl('Bot', bot.id, '$deploy'), { filename: 'assess-teachback.js', code });
-  const subscription = await medplum.upsertResource(
+  const subscription = await syncSubscription(
+    medplum,
     assessmentSubscriptionResource(bot.id),
     new URLSearchParams({ _tag: `${TAG_SYSTEM}|${ASSESS_SUBSCRIPTION_TAG}` }).toString(),
   );

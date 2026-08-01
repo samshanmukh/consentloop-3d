@@ -19,11 +19,12 @@ import type {
 import {
   buildOptionCarePlan,
   diagnosticReferences,
-  identifierQuery,
   readOptionSnapshot,
-  type Identified,
   type OptionDecision,
-} from '../../packages/fhir/index.js';
+} from '../../packages/fhir/option-snapshot.js';
+import type { Identified } from '../../packages/fhir/client.js';
+import { assertBatchSucceeded } from '../../packages/fhir/batch.js';
+import { identifierQuery } from '../../packages/fhir/demo-resources.js';
 import {
   demoTag,
   canonicalJson,
@@ -135,6 +136,7 @@ function consentResource(input: PreparationInput, snapshotVersion: string): Cons
     status: 'draft',
     scope: { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/consentscope', code: 'treatment' }] },
     category: [{ coding: [{ system: 'http://loinc.org', code: '59284-0', display: 'Patient Consent' }] }],
+    policyRule: { text: 'ConsentLoop treatment consent policy' },
     patient: reference(input.patient),
     dateTime: input.now,
     performer: [reference(input.patient)],
@@ -266,6 +268,6 @@ async function readPreparationInput(
 export async function handler(medplum: MedplumClient, event: BotEvent<ServiceRequest>): Promise<{ sessionKey: string }> {
   validatePreparationRequest(event.input);
   const input = await readPreparationInput(medplum, event.input, event);
-  await medplum.executeBatch(buildPreparationBundle(input));
+  assertBatchSucceeded(await medplum.executeBatch(buildPreparationBundle(input)));
   return { sessionKey: `prepare:${event.input.id}` };
 }

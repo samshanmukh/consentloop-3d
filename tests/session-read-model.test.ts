@@ -86,5 +86,7 @@ test('access policies are read-only and patient-scoped', () => {
   assert.equal(patient.compartment?.reference, 'Patient/patient-1');
   assert.ok(patient.resource?.every((rule) => !rule.interaction?.some((interaction) => ['create', 'update', 'delete'].includes(interaction))));
   assert.ok(patient.resource?.some((rule) => rule.criteria?.includes('Patient/patient-1')));
+  assert.ok(patient.resource?.filter((rule) => rule.criteria).every((rule) => rule.criteria?.startsWith(`${rule.resourceType}?`)));
   assert.ok(clinician.resource?.every((rule) => rule.criteria?.includes('synthetic-demo')));
+  assert.ok(clinician.resource?.every((rule) => rule.criteria?.startsWith(`${rule.resourceType}?`)));
 });

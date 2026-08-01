@@ -4,6 +4,7 @@ import type { BundleEntry, CarePlan, Resource, ServiceRequest } from '@medplum/f
 import { buildPreparationBundle, validatePreparationRequest } from '../bots/prepare-consent/index.js';
 import {
   bundlePreparationBot,
+  assertBatchSucceeded,
   prepareBotResource,
   prepareSubscriptionResource,
   readOptionSnapshot,
@@ -11,6 +12,16 @@ import {
   type FhirWriter,
   type Identified,
 } from '../packages/fhir/index.js';
+
+test('rejects failed FHIR transaction entries', () => {
+  assert.doesNotThrow(() => assertBatchSucceeded({
+    resourceType: 'Bundle', type: 'transaction-response', entry: [{ response: { status: '200 OK' } }],
+  }));
+  assert.throws(() => assertBatchSucceeded({
+    resourceType: 'Bundle', type: 'transaction-response',
+    entry: [{ response: { status: '400 Bad Request', outcome: { resourceType: 'OperationOutcome', issue: [{ severity: 'error', code: 'invalid', diagnostics: 'policyRule is required' }] } } }],
+  }), /400 Bad Request.*policyRule is required/u);
+});
 
 class MemoryWriter implements FhirWriter {
   private readonly resources = new Map<string, Identified<Resource>>();
@@ -62,7 +73,9 @@ test('builds one idempotent preparation transaction with all session resources',
   ]);
   assert.ok(entries.every((entry) => entry.request?.method === 'POST' && entry.request.ifNoneExist));
   assert.equal(readOptionSnapshot(carePlan).options.length, 4);
-  assert.equal(resource(entries[2], 'Consent').status, 'draft');
+  const consent = resource(entries[2], 'Consent');
+  assert.equal(consent.status, 'draft');
+  assert.equal(consent.policyRule?.text, 'ConsentLoop treatment consent policy');
   assert.equal(resource(entries[3], 'QuestionnaireResponse').status, 'in-progress');
   assert.equal(resource(entries[5], 'Provenance').target.length, 4);
 });
@@ -91,4 +104,7 @@ test('builds deployable Bot code and a narrowly filtered Subscription', async ()
   assert.match(decodeURIComponent(subscription.criteria), /knee-arthroscopy/u);
   assert.match(code, /handler/u);
   assert.match(code, /buildPreparationBundle/u);
+  assert.doesNotMatch(code, /^import /mu);
+  assert.match(code, /handler: \(\) => handler/u);
+  assert.match(code, /module\.exports = __toCommonJS/u);
 });

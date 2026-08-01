@@ -104,4 +104,7 @@ test('builds deployable assessment Bot and update-only Subscription', async () =
   assert.match(subscription.criteria, /^QuestionnaireResponse\?/u);
   assert.equal(subscription.extension?.[0]?.valueCode, 'update');
   assert.match(code, /buildAssessmentBundle/u);
+  assert.doesNotMatch(code, /^import /mu);
+  assert.match(code, /handler: \(\) => handler/u);
+  assert.match(code, /module\.exports = __toCommonJS/u);
 });

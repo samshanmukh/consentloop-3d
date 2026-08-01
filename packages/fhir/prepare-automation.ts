@@ -11,6 +11,7 @@ import {
   TAG_SYSTEM,
 } from '../shared/index.js';
 import { identifierQuery } from './demo-resources.js';
+import { syncSubscription } from './subscription.js';
 
 export function prepareBotResource(): Bot {
   return {
@@ -55,7 +56,7 @@ export async function bundlePreparationBot(): Promise<string> {
     write: false,
     platform: 'node',
     target: 'node22',
-    format: 'esm',
+    format: 'cjs',
     external: ['@medplum/core', '@medplum/fhirtypes'],
   });
   const output = result.outputFiles[0]?.text;
@@ -69,7 +70,8 @@ export async function deployPreparationAutomation(
   const bot = await medplum.upsertResource(prepareBotResource(), identifierQuery(PREPARE_BOT_IDENTIFIER));
   const code = await bundlePreparationBot();
   await medplum.post(medplum.fhirUrl('Bot', bot.id, '$deploy'), { filename: 'prepare-consent.js', code });
-  const subscription = await medplum.upsertResource(
+  const subscription = await syncSubscription(
+    medplum,
     prepareSubscriptionResource(bot.id),
     new URLSearchParams({ _tag: `${TAG_SYSTEM}|${PREPARE_SUBSCRIPTION_TAG}` }).toString(),
   );

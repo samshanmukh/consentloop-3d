@@ -259,12 +259,12 @@ export function patientSessionAccessPolicy(patientId: string): AccessPolicy {
     resourceType: 'AccessPolicy', name: `ConsentLoop patient session ${patientId}`,
     compartment: { reference: patient }, meta: { tag: [{ system: TAG_SYSTEM, code: DEMO_TAG }] },
     resource: [
-      { resourceType: 'Patient', criteria: `_id=${patientId}`, interaction: READ_INTERACTIONS.slice() },
-      ...['ServiceRequest', 'CarePlan', 'DiagnosticReport', 'QuestionnaireResponse'].map((resourceType) => ({ resourceType, criteria: `subject=${patient}`, interaction: READ_INTERACTIONS.slice() })),
-      { resourceType: 'Consent', criteria: `patient=${patient}`, interaction: READ_INTERACTIONS.slice() },
-      { resourceType: 'Task', criteria: `patient=${patient}`, interaction: READ_INTERACTIONS.slice() },
+      { resourceType: 'Patient', criteria: `Patient?_id=${patientId}`, interaction: READ_INTERACTIONS.slice() },
+      ...['ServiceRequest', 'CarePlan', 'DiagnosticReport', 'QuestionnaireResponse'].map((resourceType) => ({ resourceType, criteria: `${resourceType}?subject=${patient}`, interaction: READ_INTERACTIONS.slice() })),
+      { resourceType: 'Consent', criteria: `Consent?patient=${patient}`, interaction: READ_INTERACTIONS.slice() },
+      { resourceType: 'Task', criteria: `Task?patient=${patient}`, interaction: READ_INTERACTIONS.slice() },
       { resourceType: 'Questionnaire', interaction: READ_INTERACTIONS.slice() },
-      { resourceType: 'PlanDefinition', criteria: `url=${encodeURIComponent(OPTION_CATALOG_URL)}`, interaction: READ_INTERACTIONS.slice() },
+      { resourceType: 'PlanDefinition', criteria: `PlanDefinition?url=${encodeURIComponent(OPTION_CATALOG_URL)}`, interaction: READ_INTERACTIONS.slice() },
     ],
   };
 }
@@ -274,6 +274,6 @@ export function clinicianDemoAccessPolicy(): AccessPolicy {
     resourceType: 'AccessPolicy', name: 'ConsentLoop synthetic-demo clinician',
     meta: { tag: [{ system: TAG_SYSTEM, code: DEMO_TAG }] },
     resource: ['Patient', 'ServiceRequest', 'CarePlan', 'DiagnosticReport', 'QuestionnaireResponse', 'Consent', 'Task', 'Provenance', 'AuditEvent', 'Questionnaire', 'PlanDefinition']
-      .map((resourceType) => ({ resourceType, criteria: `_tag=${TAG_SYSTEM}|${DEMO_TAG}`, interaction: READ_INTERACTIONS.slice() })),
+      .map((resourceType) => ({ resourceType, criteria: `${resourceType}?_tag=${TAG_SYSTEM}|${DEMO_TAG}`, interaction: READ_INTERACTIONS.slice() })),
   };
 }

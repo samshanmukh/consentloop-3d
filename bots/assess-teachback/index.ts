@@ -17,7 +17,9 @@ import {
   type TeachBackResult,
 } from '../../packages/shared/index.js';
 import { getStringExtension, replaceStringExtension, stringExtension } from '../../packages/fhir/extensions.js';
-import { identifierQuery, type Identified } from '../../packages/fhir/index.js';
+import type { Identified } from '../../packages/fhir/client.js';
+import { assertBatchSucceeded } from '../../packages/fhir/batch.js';
+import { identifierQuery } from '../../packages/fhir/demo-resources.js';
 
 export interface AssessmentInput {
   response: Identified<QuestionnaireResponse>;
@@ -171,7 +173,7 @@ export async function handler(medplum: MedplumClient, event: BotEvent<Questionna
   );
   if (alreadyProcessed) return { status: currentWorkflow(input.consent).status };
   const bundle = buildAssessmentBundle(input);
-  await medplum.executeBatch(bundle);
+  assertBatchSucceeded(await medplum.executeBatch(bundle));
   const consent = bundle.entry?.[0]?.resource as Consent;
   return { status: currentWorkflow(consent).status };
 }

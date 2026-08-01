@@ -1,4 +1,5 @@
 export * from './client.js';
+export * from './batch.js';
 export * from './assess-automation.js';
 export * from './demo-resources.js';
 export * from './extensions.js';
@@ -8,6 +9,7 @@ export * from './option-actions.js';
 export * from './prepare-automation.js';
 export * from './preparation-smoke.js';
 export * from './session-read-model.js';
+export * from './subscription.js';
 export * from './reset-demo.js';
 export * from './full-workflow.js';
 export * from './workflow-actions.js';
