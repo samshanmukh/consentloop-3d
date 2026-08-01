@@ -1,6 +1,6 @@
 import { build } from 'esbuild';
 import type { MedplumClient } from '@medplum/core';
-import type { Bot, Subscription } from '@medplum/fhirtypes';
+import type { Bot, ServiceRequest, Subscription } from '@medplum/fhirtypes';
 import {
   DEMO_TAG,
   IDENTIFIER_SYSTEM,
@@ -62,6 +62,17 @@ export async function bundlePreparationBot(): Promise<string> {
   const output = result.outputFiles[0]?.text;
   if (!output) throw new Error('esbuild produced no preparation Bot output');
   return output;
+}
+
+export async function executePreparationAutomation(
+  medplum: MedplumClient,
+  request: ServiceRequest & { id: string },
+): Promise<void> {
+  await medplum.executeBot(
+    { system: IDENTIFIER_SYSTEM, value: PREPARE_BOT_IDENTIFIER },
+    request,
+    'application/fhir+json',
+  );
 }
 
 export async function deployPreparationAutomation(

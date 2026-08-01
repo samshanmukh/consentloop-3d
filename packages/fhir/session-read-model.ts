@@ -167,7 +167,7 @@ async function required<T extends Resource>(promise: Promise<T | undefined>, lab
 }
 
 async function collectSessionEvents(medplum: MedplumClient, serviceRequestId: string): Promise<{ reviewTasks: Identified<Task>[]; provenance: Identified<Provenance>[]; auditEvents: Identified<AuditEvent>[] }> {
-  const taskQuery = new URLSearchParams({ basedon: `ServiceRequest/${serviceRequestId}`, _tag: `${TAG_SYSTEM}|${DEMO_TAG}`, _count: '100' });
+  const taskQuery = new URLSearchParams({ 'based-on': `ServiceRequest/${serviceRequestId}`, _tag: `${TAG_SYSTEM}|${DEMO_TAG}`, _count: '100' });
   const provenanceQuery = new URLSearchParams({ _tag: `${TAG_SYSTEM}|${DEMO_TAG}`, _count: '100', _sort: 'recorded' });
   const auditQuery = new URLSearchParams({ entity: `ServiceRequest/${serviceRequestId}`, _count: '100', _sort: 'date' });
   const reviewTasks: Identified<Task>[] = [];

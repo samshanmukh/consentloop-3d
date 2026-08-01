@@ -16,12 +16,12 @@ import {
   type ComprehensionStatus,
   type ConsentWorkflow,
 } from '../shared/index.js';
-import { deployAssessmentAutomation } from './assess-automation.js';
+import { deployAssessmentAutomation, executeAssessmentAutomation } from './assess-automation.js';
 import { DEMO_IDENTIFIERS, identifierQuery, seedDemo } from './demo-resources.js';
 import { getStringExtension, replaceStringExtension } from './extensions.js';
 import { buildReviewRequestBundle, buildReviewResolutionBundle } from './option-actions.js';
 import { readOptionSnapshot } from './option-snapshot.js';
-import { deployPreparationAutomation } from './prepare-automation.js';
+import { deployPreparationAutomation, executePreparationAutomation } from './prepare-automation.js';
 import { resetDemo } from './reset-demo.js';
 import { loadSessionReadModel } from './session-read-model.js';
 import { buildClinicianTaskResolutionBundle, buildSnapshotReviewBundle } from './workflow-actions.js';
@@ -102,7 +102,8 @@ async function contradictionAndCorrection(
   resources: Awaited<ReturnType<typeof preparedSession>>,
   clinicianReference: string,
 ): Promise<void> {
-  await medplum.updateResource(structuredResponse(await medplum.readResource('QuestionnaireResponse', resources.response.id), true));
+  const contradicted = await medplum.updateResource(structuredResponse(await medplum.readResource('QuestionnaireResponse', resources.response.id), true));
+  await executeAssessmentAutomation(medplum, contradicted);
   const escalation = await waitFor(
     () => medplum.searchOne('Task', identifierQuery(`comprehension-review:${resources.response.id}`)),
     (task) => task.status === 'requested',
@@ -113,7 +114,8 @@ async function contradictionAndCorrection(
   await medplum.executeBatch(buildClinicianTaskResolutionBundle(blocked, escalation, {
     clinicianReference, response: 'Clinician corrected the knee-replacement misconception.', now: new Date().toISOString(),
   }));
-  await medplum.updateResource(structuredResponse(await medplum.readResource('QuestionnaireResponse', resources.response.id), false));
+  const corrected = await medplum.updateResource(structuredResponse(await medplum.readResource('QuestionnaireResponse', resources.response.id), false));
+  await executeAssessmentAutomation(medplum, corrected);
   await waitFor(
     () => medplum.readResource('Consent', resources.consent.id),
     (consent) => readWorkflow(consent).status === 'ready',
@@ -159,7 +161,7 @@ async function signConsent(medplum: MedplumClient, consentId: string, patientRef
 }
 
 async function assertNoDuplicates(medplum: MedplumClient, requestId: string): Promise<void> {
-  const tasks = await medplum.searchResources('Task', new URLSearchParams({ basedon: `ServiceRequest/${requestId}`, _count: '100' }));
+  const tasks = await medplum.searchResources('Task', new URLSearchParams({ 'based-on': `ServiceRequest/${requestId}`, _count: '100' }));
   const identifiers = tasks.flatMap((task) => task.identifier ?? [])
     .filter((identifier) => identifier.system === IDENTIFIER_SYSTEM)
     .map((identifier) => identifier.value)
@@ -195,6 +197,7 @@ export async function verifyFullWorkflow(medplum: MedplumClient): Promise<FullWo
   await deployPreparationAutomation(medplum);
   await deployAssessmentAutomation(medplum);
   const seeded = await seedDemo(medplum);
+  await executePreparationAutomation(medplum, seeded.serviceRequest);
   const resources = await preparedSession(medplum, seeded.serviceRequest.id);
   const patientReference = `Patient/${seeded.patient.id}`;
   const clinicianReference = `Practitioner/${seeded.practitioner.id}`;

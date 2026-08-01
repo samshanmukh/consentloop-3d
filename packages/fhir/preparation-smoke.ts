@@ -4,6 +4,7 @@ import type { CarePlan, Consent, Provenance, QuestionnaireResponse, ServiceReque
 import { DEMO_TAG, IDENTIFIER_SYSTEM, TAG_SYSTEM } from '../shared/index.js';
 import { identifierQuery, seedDemo } from './demo-resources.js';
 import { readOptionSnapshot } from './option-snapshot.js';
+import { executePreparationAutomation } from './prepare-automation.js';
 
 interface SmokeResources {
   request: ServiceRequest & { id: string };
@@ -46,6 +47,7 @@ export async function runPreparationSmoke(medplum: MedplumClient): Promise<Smoke
     meta: { tag: [{ system: TAG_SYSTEM, code: DEMO_TAG }] },
   };
   const request = await medplum.createResource(smokeRequest);
+  await executePreparationAutomation(medplum, request);
   const [task, consent, response, carePlan, provenance] = await Promise.all([
     waitFor(() => medplum.searchOne('Task', identifierQuery(`task:${request.id}`)), 'education Task'),
     waitFor(() => medplum.searchOne('Consent', identifierQuery(`consent:${request.id}`)), 'draft Consent'),

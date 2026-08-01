@@ -38,6 +38,8 @@ ConsentLoop turns consent into a measurable clinical workflow.
 11. Critical uncertainty or an unresolved decision creates a clinician Task and blocks completion.
 12. Once resolved, the signed Consent and its full audit trail are recorded.
 
+For environments where Subscription delivery is unavailable, the trusted workflow service calls the same deployed Bots through Medplum's `$execute` operation immediately after writing the triggering resource. Bot validation, idempotency, FHIR provenance, and consent safeguards remain unchanged.
+
 ConsentLoop assists informed-consent education and workflow management. It does not replace the clinician, provide medical advice, or independently determine whether consent is legally valid.
 
 ## Interactive UI demo

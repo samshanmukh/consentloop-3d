@@ -1,6 +1,6 @@
 import { build } from 'esbuild';
 import type { MedplumClient } from '@medplum/core';
-import type { Bot, Subscription } from '@medplum/fhirtypes';
+import type { Bot, QuestionnaireResponse, Subscription } from '@medplum/fhirtypes';
 import { ASSESS_BOT_IDENTIFIER, ASSESS_SUBSCRIPTION_TAG, DEMO_TAG, IDENTIFIER_SYSTEM, TAG_SYSTEM } from '../shared/index.js';
 import { identifierQuery } from './demo-resources.js';
 import { syncSubscription } from './subscription.js';
@@ -34,6 +34,17 @@ export async function bundleAssessmentBot(): Promise<string> {
   const output = result.outputFiles[0]?.text;
   if (!output) throw new Error('esbuild produced no assessment Bot output');
   return output;
+}
+
+export async function executeAssessmentAutomation(
+  medplum: MedplumClient,
+  response: QuestionnaireResponse & { id: string },
+): Promise<void> {
+  await medplum.executeBot(
+    { system: IDENTIFIER_SYSTEM, value: ASSESS_BOT_IDENTIFIER },
+    response,
+    'application/fhir+json',
+  );
 }
 
 export async function deployAssessmentAutomation(medplum: MedplumClient): Promise<{ bot: Bot & { id: string }; subscription: Subscription & { id: string } }> {
