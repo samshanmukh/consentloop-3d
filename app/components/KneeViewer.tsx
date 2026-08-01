@@ -1,7 +1,7 @@
 "use client";
 
-import { Html, OrbitControls, RoundedBox, useGLTF } from "@react-three/drei";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { CameraControls, Html, RoundedBox, useGLTF } from "@react-three/drei";
+import { Canvas, useFrame } from "@react-three/fiber";
 import {
   Maximize2,
   Pause,
@@ -18,9 +18,12 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useState,
   Suspense,
 } from "react";
+import type CameraControlsImpl from "camera-controls";
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   anatomyCommandEvent,
   initialAnatomyState,
@@ -42,12 +45,14 @@ import {
 import type { SceneCommand } from "@consentloop/shared";
 
 const stageLabels: Record<ProcedureStage, string> = {
-  overview: "Healthy orientation",
+  overview: "Whole-body orientation",
   tear: "Meniscus tear",
   scope: "Arthroscope path",
   treatment: "Possible treatment area",
   recovery: "Protected recovery",
 };
+
+const RIGHT_KNEE_ANCHOR = new THREE.Vector3(-0.42, -1.46, 0.08);
 
 interface KneeViewerProps {
   compact?: boolean;
@@ -81,23 +86,179 @@ function SoftTissueMaterial({ highlighted = false }: { highlighted?: boolean }) 
   );
 }
 
-function CameraRig({ state }: { state: AnatomyState }) {
-  const { camera } = useThree();
+function CameraDirector({
+  controls,
+  state,
+  reducedMotion,
+}: {
+  controls: React.RefObject<CameraControlsImpl | null>;
+  state: AnatomyState;
+  reducedMotion: boolean;
+}) {
+  useEffect(() => {
+    const instance = controls.current;
+    if (!instance) return;
 
-  useFrame(() => {
-    const desiredDistance = 6.4 / state.zoom;
-    const currentDistance = camera.position.length();
-    if (currentDistance > 0.1) {
-      const scale = THREE.MathUtils.lerp(
-        1,
-        desiredDistance / currentDistance,
-        0.045,
-      );
-      camera.position.multiplyScalar(scale);
+    const isBody = state.viewMode === "body";
+    const target = isBody ? new THREE.Vector3(0, 0, 0) : RIGHT_KNEE_ANCHOR;
+    const distance = (isBody ? 10.8 : 3.65) / state.zoom;
+    const height = isBody ? 0.16 : 0.06;
+    const position = new THREE.Vector3(
+      target.x + Math.sin(state.rotation) * distance,
+      target.y + height,
+      target.z + Math.cos(state.rotation) * distance,
+    );
+
+    void instance.setLookAt(
+      position.x,
+      position.y,
+      position.z,
+      target.x,
+      target.y,
+      target.z,
+      !reducedMotion,
+    );
+  }, [controls, reducedMotion, state.rotation, state.viewMode, state.zoom]);
+
+  useFrame((_, delta) => {
+    if (state.autoRotate && !reducedMotion) {
+      void controls.current?.rotate(delta * 0.18, 0, false);
     }
   });
 
   return null;
+}
+
+function BodyLoadingModel() {
+  return (
+    <group aria-label="Loading full-body anatomy">
+      <mesh position={[0, 2.55, 0]}>
+        <sphereGeometry args={[0.42, 24, 24]} />
+        <meshPhysicalMaterial color="#d86c76" transparent opacity={0.42} />
+      </mesh>
+      <mesh position={[0, 0.7, 0]} scale={[1.4, 1, 0.62]}>
+        <capsuleGeometry args={[0.5, 2.25, 12, 24]} />
+        <meshPhysicalMaterial color="#cc5261" transparent opacity={0.38} />
+      </mesh>
+      {[-1, 1].map((side) => (
+        <group key={side}>
+          <mesh position={[side * 0.94, 0.7, 0]} rotation={[0, 0, side * -0.08]}>
+            <capsuleGeometry args={[0.18, 2.7, 10, 18]} />
+            <meshPhysicalMaterial color="#d45b68" transparent opacity={0.4} />
+          </mesh>
+          <mesh position={[side * 0.38, -1.78, 0]}>
+            <capsuleGeometry args={[0.25, 2.45, 10, 18]} />
+            <meshPhysicalMaterial color="#c94555" transparent opacity={0.4} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
+function FullBodyModel({
+  state,
+  onFocusKnee,
+}: {
+  state: AnatomyState;
+  onFocusKnee: () => void;
+}) {
+  const { scene } = useGLTF("/models/body/anatomy.glb", "/draco-gltf/");
+  const bodyGeometry = useMemo(() => {
+    scene.updateMatrixWorld(true);
+    const geometries: THREE.BufferGeometry[] = [];
+
+    scene.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      const geometry = object.geometry.clone();
+      geometry.applyMatrix4(object.matrixWorld);
+      Object.keys(geometry.attributes).forEach((attribute) => {
+        if (attribute !== "position" && attribute !== "normal") {
+          geometry.deleteAttribute(attribute);
+        }
+      });
+      if (!geometry.getAttribute("normal")) geometry.computeVertexNormals();
+      geometries.push(geometry);
+    });
+
+    const merged = mergeGeometries(geometries, false);
+    geometries.forEach((geometry) => geometry.dispose());
+    if (!merged) return new THREE.SphereGeometry(0.01);
+
+    merged.rotateX(-Math.PI / 2);
+    merged.computeBoundingBox();
+    const box = merged.boundingBox ?? new THREE.Box3();
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    const normalizer = 6.2 / Math.max(size.y, 0.001);
+    merged.translate(-center.x, -center.y, -center.z);
+    merged.scale(normalizer, normalizer, normalizer);
+    merged.computeBoundingSphere();
+    return merged;
+  }, [scene]);
+
+  useEffect(
+    () => () => {
+      bodyGeometry.dispose();
+    },
+    [bodyGeometry],
+  );
+
+  return (
+    <group>
+      <mesh geometry={bodyGeometry}>
+        <meshPhysicalMaterial
+          color="#cf4052"
+          roughness={0.5}
+          metalness={0}
+          clearcoat={0.24}
+          clearcoatRoughness={0.42}
+          emissive="#34030b"
+          emissiveIntensity={0.16}
+          side={THREE.DoubleSide}
+          transparent
+          opacity={state.viewMode === "body" ? 0.98 : 0.1}
+          depthWrite={state.viewMode === "body"}
+        />
+      </mesh>
+      <mesh position={RIGHT_KNEE_ANCHOR.toArray()}>
+        <sphereGeometry args={[0.17, 28, 28]} />
+        <meshPhysicalMaterial
+          color="#ff7b87"
+          emissive="#ff2446"
+          emissiveIntensity={state.viewMode === "body" ? 1.8 : 0.45}
+          transparent
+          opacity={state.viewMode === "body" ? 0.66 : 0.18}
+        />
+      </mesh>
+      <mesh position={RIGHT_KNEE_ANCHOR.toArray()}>
+        <torusGeometry args={[0.29, 0.025, 14, 72]} />
+        <meshBasicMaterial color="#ffd7db" transparent opacity={0.9} />
+      </mesh>
+      {state.viewMode === "body" && (
+        <Html position={RIGHT_KNEE_ANCHOR.toArray()} center distanceFactor={7.5}>
+          <button
+            type="button"
+            className="body-knee-hotspot"
+            onClick={onFocusKnee}
+            aria-label="Zoom into the right knee"
+          >
+            <span className="body-knee-hotspot-ring" aria-hidden="true" />
+            <span className="body-knee-hotspot-card">
+              <strong>Right knee</strong>
+              <small>Meniscus tear · explore</small>
+            </span>
+          </button>
+        </Html>
+      )}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -3.14, 0]}>
+        <ringGeometry args={[1.05, 1.08, 96]} />
+        <meshBasicMaterial color="#7fb6eb" transparent opacity={0.5} />
+      </mesh>
+    </group>
+  );
 }
 
 function getAnatomyCategory(object: THREE.Object3D) {
@@ -489,7 +650,16 @@ function KneeModel({ state }: { state: AnatomyState }) {
   );
 }
 
-function Scene({ state }: { state: AnatomyState }) {
+function Scene({
+  state,
+  reducedMotion,
+  onFocusKnee,
+}: {
+  state: AnatomyState;
+  reducedMotion: boolean;
+  onFocusKnee: () => void;
+}) {
+  const controls = useRef<CameraControlsImpl | null>(null);
   const lights = useMemo(
     () => ({ key: new THREE.Color("#d6ecff"), fill: new THREE.Color("#ffdee2") }),
     [],
@@ -497,24 +667,34 @@ function Scene({ state }: { state: AnatomyState }) {
 
   return (
     <>
-      <CameraRig state={state} />
-      <ambientLight intensity={1.35} />
-      <directionalLight position={[4, 7, 6]} intensity={3.1} color={lights.key} />
-      <directionalLight position={[-5, 2, 2]} intensity={2.2} color={lights.fill} />
-      <pointLight position={[0, -2, 4]} intensity={1.2} color="#42a8ff" />
-      <Suspense fallback={<KneeModel state={state} />}>
-        <DetailedKneeModel state={state} />
+      <ambientLight intensity={1.7} />
+      <directionalLight position={[4, 7, 6]} intensity={3.4} color={lights.key} />
+      <directionalLight position={[-5, 2, 4]} intensity={2.5} color={lights.fill} />
+      <pointLight position={[0, -2, 5]} intensity={1.4} color="#42a8ff" />
+      <Suspense fallback={<BodyLoadingModel />}>
+        <FullBodyModel state={state} onFocusKnee={onFocusKnee} />
       </Suspense>
-      <OrbitControls
+
+      {state.viewMode === "knee" && (
+        <group position={RIGHT_KNEE_ANCHOR.toArray()} scale={0.42}>
+          <Suspense fallback={<KneeModel state={state} />}>
+            <DetailedKneeModel state={state} />
+          </Suspense>
+        </group>
+      )}
+
+      <CameraControls
+        ref={controls}
         makeDefault
-        enablePan={false}
-        minDistance={3.7}
-        maxDistance={8.2}
-        minPolarAngle={Math.PI * 0.22}
-        maxPolarAngle={Math.PI * 0.78}
-        autoRotate={state.autoRotate}
-        autoRotateSpeed={0.75}
+        minDistance={2.1}
+        maxDistance={14}
+        minPolarAngle={Math.PI * 0.12}
+        maxPolarAngle={Math.PI * 0.88}
+        dollyToCursor
+        smoothTime={reducedMotion ? 0.01 : 0.55}
+        draggingSmoothTime={reducedMotion ? 0.01 : 0.12}
       />
+      <CameraDirector controls={controls} state={state} reducedMotion={reducedMotion} />
     </>
   );
 }
@@ -525,7 +705,9 @@ export function KneeViewer({
   onStateChange,
 }: KneeViewerProps) {
   const [state, dispatch] = useReducer(reduceAnatomyCommand, initialAnatomyState);
+  const [reducedMotion, setReducedMotion] = useState(false);
   const stateRef = useRef(state);
+  const sectionRef = useRef<HTMLElement>(null);
   const revisionRef = useRef(0);
   const processedCommands = useRef(new Set<string>());
 
@@ -533,8 +715,24 @@ export function KneeViewer({
     stateRef.current = state;
   }, [state]);
 
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReducedMotion(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
   const execute = useCallback((command: AnatomyCommand) => {
     dispatch(command);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+    void sectionRef.current?.requestFullscreen();
   }, []);
 
   const executeViz = useCallback(
@@ -644,19 +842,24 @@ export function KneeViewer({
 
   return (
     <section
+      ref={sectionRef}
       className={`knee-viewer ${compact ? "knee-viewer-compact" : ""} ${className}`}
-      aria-label="Interactive 3D knee anatomy"
+      aria-label="Interactive 3D whole-body and right-knee anatomy"
     >
       <div className="viewer-ambient viewer-ambient-blue" />
       <div className="viewer-ambient viewer-ambient-coral" />
       <div className="viewer-canvas">
         <Canvas
-          camera={{ position: [0.3, 0.15, 6.4], fov: 34 }}
-          dpr={[1, 1.8]}
+          camera={{ position: [0, 0.16, 10.8], fov: 34 }}
+          dpr={[1, 1.5]}
           gl={{ antialias: true, alpha: true }}
           fallback={<div className="canvas-fallback">3D preview unavailable</div>}
         >
-          <Scene state={state} />
+          <Scene
+            state={state}
+            reducedMotion={reducedMotion}
+            onFocusKnee={() => execute({ type: "focus", target: "knee" })}
+          />
         </Canvas>
       </div>
 
@@ -665,15 +868,17 @@ export function KneeViewer({
           <span className="live-dot" />
           Interactive model
         </div>
-        <div className="viewer-stage-label">{stageLabels[state.stage]}</div>
+        <div className="viewer-stage-label" aria-live="polite">
+          {state.viewMode === "body" ? "Whole body · right knee marked" : stageLabels[state.stage]}
+        </div>
       </div>
       <a
         className="viewer-license"
-        href="https://anatomytool.org/content/open3dmodel-knee-english-labels"
+        href="https://github.com/Poilon/carabin/tree/87cbaf4ee882b741d0fd1d6403c00ec0d23eaf83/corps-humain"
         target="_blank"
         rel="noreferrer"
       >
-        Illustrative model · CC BY-SA 4.0
+        BodyParts3D body + Open3D knee · CC BY-SA
       </a>
 
       {!compact && (
@@ -734,8 +939,8 @@ export function KneeViewer({
             </button>
             <button
               type="button"
-              onClick={() => execute({ type: "reset" })}
-              aria-label="Reset 3D view"
+              onClick={toggleFullscreen}
+              aria-label="View model full screen"
             >
               <Maximize2 size={17} />
             </button>
@@ -744,11 +949,17 @@ export function KneeViewer({
           <button
             type="button"
             className="viewer-focus-cta"
-            onClick={() => execute({ type: "focus", target: "tear" })}
+            onClick={() =>
+              execute({
+                type: "focus",
+                target: state.viewMode === "body" ? "knee" : "body",
+              })
+            }
           >
             <ScanSearch size={17} />
-            Focus on the tear
+            {state.viewMode === "body" ? "Zoom to right knee" : "Back to whole body"}
           </button>
+          <div className="viewer-gesture-hint">Drag to rotate · scroll or pinch to zoom</div>
         </>
       )}
     </section>
@@ -756,3 +967,4 @@ export function KneeViewer({
 }
 
 useGLTF.preload("/models/knee/anatomy.glb", "/draco-gltf/");
+useGLTF.preload("/models/body/anatomy.glb", "/draco-gltf/");

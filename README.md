@@ -42,7 +42,7 @@ ConsentLoop assists informed-consent education and workflow management. It does 
 
 The repository now includes a complete synthetic patient frontend for Jordan Lee's knee-arthroscopy journey. It contains seven responsive views: overview, interactive 3D procedure, option comparison, timeline and recovery planning, cost details, teach-back, and clinician-review handoff.
 
-The 3D viewer uses a locally bundled, attributed anatomical knee model with a procedural loading fallback and arthroscopy overlays. Every voice-driven action has a manual equivalent. Person 3 can control the viewer through the versioned semantic `consentloop.viz-command.v1` browser contract; Person 1 can replace the typed demo fixtures with Medplum-backed adapters without changing the presentation components.
+The 3D viewer now begins with a complete, locally bundled muscular-body model, marks the patient’s right knee, and smoothly moves from whole-person orientation into a separately detailed knee model. Patients can drag to rotate, scroll or pinch to zoom, use explicit zoom controls, enter full screen, or return to the full body at any time. Every voice-driven action has a manual equivalent. Person 3 can control the viewer through the versioned semantic `consentloop.viz-command.v1` browser contract; Person 1 can replace the typed demo fixtures with Medplum-backed adapters without changing the presentation components.
 
 See [Person 2 UI handoff](docs/person-2-ui-handoff.md) for the data boundaries, voice command examples, model attribution, and integration checklist.
 For the live Medplum setup and workflow commands, see the [Person 1 runbook](RUNBOOK-person1.md).
@@ -63,7 +63,9 @@ The hackathon demo focuses on knee arthroscopy because it is visually understand
 
 The patient can:
 
-- rotate and zoom the knee;
+- begin with the whole muscular body and identify the correct side and joint;
+- select the right-knee hotspot for a smooth camera move into the joint;
+- freely rotate and zoom with drag, wheel, pinch, buttons, or full-screen mode;
 - reveal internal joint anatomy;
 - highlight the damaged meniscus;
 - watch the arthroscope insertion path;
@@ -168,6 +170,7 @@ The 3D visualization is clinically linked, not decorative. Each required compreh
 
 | Consent concept | 3D response |
 | --- | --- |
+| Whole-person orientation | Show the complete body, mark the right knee, then move into the joint |
 | Target anatomy | Highlight the damaged meniscus |
 | Procedure action | Animate the arthroscope path |
 | Tissue removal | Isolate the region that may be trimmed |
@@ -175,7 +178,7 @@ The 3D visualization is clinically linked, not decorative. Each required compreh
 | Nearby structures | Reveal adjacent cartilage, ligaments, and nerves |
 | Alternative treatment | Return to the untreated state and compare options |
 
-The implemented MVP uses React Three Fiber, Drei, and Three.js with a locally bundled GLB model, semantic hotspots, camera controls, procedural arthroscopy overlays, and an accessible non-speech control surface. Person 3 can send either the team's shared `SceneCommand` contract or the richer versioned `consentloop.viz-command.v1` commands; an explicit adapter keeps raw transcripts and mesh names out of the renderer.
+The implemented MVP uses React Three Fiber, Drei, and Three.js with two locally bundled GLB layers: a complete BodyParts3D muscular body for orientation and the Open3DModel knee for close detail. The renderer merges the body’s 418 structures into one web-optimized draw mesh, anchors the knee detail at the correct body location, provides semantic hotspots and smooth camera controls, and adds procedural arthroscopy overlays. Person 3 can send either the team's shared `SceneCommand` contract or the richer versioned `consentloop.viz-command.v1` commands; an explicit adapter keeps raw transcripts and mesh names out of the renderer.
 
 ## Voice and comprehension loop
 

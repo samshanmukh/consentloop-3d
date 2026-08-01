@@ -6,6 +6,7 @@ export const vizResultEvent = "consentloop:viz-result";
 export const sharedSceneCommandEvent = "consentloop:scene-command";
 
 export type VizTargetId =
+  | "anatomy.body"
   | "anatomy.knee"
   | "anatomy.meniscus.medial"
   | "anatomy.meniscus.tear"
@@ -55,6 +56,10 @@ export interface VizResultV1 {
 export const vizCapabilities = {
   schema: "consentloop.viz-capabilities.v1" as const,
   targets: [
+    {
+      id: "anatomy.body",
+      aliases: ["body", "whole body", "full body", "person", "patient anatomy"],
+    },
     { id: "anatomy.knee", aliases: ["knee", "joint", "whole knee"] },
     { id: "anatomy.meniscus.medial", aliases: ["meniscus", "cartilage cushion"] },
     { id: "anatomy.meniscus.tear", aliases: ["tear", "damaged part", "injury"] },
@@ -74,6 +79,7 @@ export const vizCapabilities = {
 
 function targetToAnatomyTarget(target: VizTargetId): AnatomyTarget {
   const targets: Record<VizTargetId, AnatomyTarget> = {
+    "anatomy.body": "body",
     "anatomy.knee": "knee",
     "anatomy.meniscus.medial": "meniscus",
     "anatomy.meniscus.tear": "tear",
@@ -98,23 +104,49 @@ function translateAtomicAction(action: VizAtomicAction): AnatomyCommand[] {
   switch (action.type) {
     case "scene.reset":
       return [{ type: "reset" }];
-    case "scene.setMode":
-      return [{ type: "set-stage", stage: action.mode === "recovery" ? "recovery" : "overview" }];
+    case "scene.setMode": {
+      if (action.mode === "overview") {
+        return [{ type: "set-stage", stage: "overview" }];
+      }
+      if (action.mode === "anatomy") {
+        return [
+          { type: "set-stage", stage: "overview" },
+          { type: "focus", target: "knee" },
+        ];
+      }
+      return [
+        {
+          type: "set-stage",
+          stage: action.mode === "recovery" ? "recovery" : "scope",
+        },
+      ];
+    }
     case "camera.orbit":
       return [{ type: "rotate", direction: action.yawDeg < 0 ? "left" : "right" }];
     case "camera.zoom":
-      return [{ type: "zoom", direction: action.factor >= 1 ? "in" : "out" }];
+      return [
+        {
+          type: "zoom",
+          direction: action.factor >= 1 ? "in" : "out",
+          factor: action.factor,
+        },
+      ];
     case "target.select":
     case "target.isolate": {
       const target = action.targets[0];
       if (!target) return [];
       return [{ type: "focus", target: targetToAnatomyTarget(target) }];
     }
-    case "procedure.preview":
+    case "procedure.preview": {
+      const stage = stepToStage(action.stepId);
       return [
-        { type: "set-stage", stage: stepToStage(action.stepId) },
+        { type: "set-stage", stage },
+        ...(stage === "overview"
+          ? [{ type: "focus", target: "knee" } as AnatomyCommand]
+          : []),
         ...(action.autoplay ? [{ type: "set-auto-rotate", enabled: true } as AnatomyCommand] : []),
       ];
+    }
   }
 }
 
@@ -128,6 +160,15 @@ export function translateVizCommand(command: VizCommandV1): AnatomyCommand[] {
 
 function resolveSharedTarget(target: string): VizTargetId {
   const normalized = target.toLowerCase();
+  if (
+    normalized.includes("whole body") ||
+    normalized.includes("full body") ||
+    normalized.includes("person") ||
+    normalized.includes("patient anatomy") ||
+    normalized === "body"
+  ) {
+    return "anatomy.body";
+  }
   if (normalized.includes("incision") || normalized.includes("portal")) {
     return "procedure.portals";
   }

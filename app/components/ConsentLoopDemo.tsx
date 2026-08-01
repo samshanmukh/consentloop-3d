@@ -50,7 +50,11 @@ import type {
   ComprehensionConceptId,
   ComprehensionStatus,
 } from "@consentloop/shared";
-import type { AnatomyCommand, AnatomyState } from "../lib/anatomy-commands";
+import type {
+  AnatomyCommand,
+  AnatomyState,
+  AnatomyTarget,
+} from "../lib/anatomy-commands";
 import {
   careOptions,
   costBreakdown,
@@ -67,7 +71,7 @@ const KneeViewer = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="knee-viewer viewer-loading" aria-label="Interactive 3D knee anatomy loading">
+      <div className="knee-viewer viewer-loading" aria-label="Interactive 3D anatomy loading">
         <span className="model-loading-orb" />
         <strong>Preparing interactive anatomy…</strong>
       </div>
@@ -377,6 +381,18 @@ function AnatomyView({
   anatomyState: AnatomyState | null;
   onAnatomyState: (state: AnatomyState) => void;
 }) {
+  const isBodyOverview = anatomyState?.viewMode !== "knee";
+  const sceneNumber =
+    anatomyState?.stage === "recovery"
+      ? 5
+      : anatomyState?.stage === "treatment"
+        ? 4
+        : anatomyState?.stage === "scope"
+          ? 3
+          : anatomyState?.stage === "tear" || anatomyState?.viewMode === "knee"
+            ? 2
+            : 1;
+
   return (
     <div className="anatomy-layout view-enter">
       <div className="anatomy-main">
@@ -385,6 +401,8 @@ function AnatomyView({
           <span className="card-kicker">Model hotspots</span>
           <div>
             {[
+              ["Whole body", "body"],
+              ["Right knee", "knee"],
               ["Damaged meniscus", "tear"],
               ["Cruciate ligaments", "ligaments"],
               ["Camera portals", "portals"],
@@ -392,7 +410,12 @@ function AnatomyView({
               <button
                 key={target}
                 className={anatomyState?.target === target ? "active" : ""}
-                onClick={() => window.consentLoop3D?.execute({ type: "focus", target: target as "tear" | "ligaments" | "portals" })}
+                onClick={() =>
+                  window.consentLoop3D?.execute({
+                    type: "focus",
+                    target: target as AnatomyTarget,
+                  })
+                }
               >
                 <span /><strong>{label}</strong><ArrowRight size={15} />
               </button>
@@ -403,21 +426,49 @@ function AnatomyView({
       <aside className="anatomy-sidebar">
         <section className="glass-card explanation-card">
           <div className="card-heading-row">
-            <StatusPill tone="coral">Scene {anatomyState?.stage === "overview" ? "1" : "2"} of 5</StatusPill>
+            <StatusPill tone="coral">Scene {sceneNumber} of 5</StatusPill>
             <button className="icon-button" aria-label="More information"><Info size={17} /></button>
           </div>
-          <h3>The tear is in the meniscus—not the whole knee.</h3>
-          <p>
-            The meniscus is a crescent of cartilage that cushions the joint.
-            During arthroscopy, the surgeon first looks at the tissue before
-            deciding whether damaged edges can be repaired or need limited trimming.
-          </p>
+          <h3>
+            {isBodyOverview
+              ? "Your procedure is localized to the right knee."
+              : "The tear is in the meniscus—not the whole knee."}
+          </h3>
+          {isBodyOverview ? (
+            <p>
+              Start with the whole person for orientation. Your care plan concerns
+              one small area inside the right knee—not your hip, spine, or the rest
+              of the leg. Select the knee marker to move into the joint.
+            </p>
+          ) : (
+            <p>
+              The meniscus is a crescent of cartilage that cushions the joint.
+              During arthroscopy, the surgeon first looks at the tissue before
+              deciding whether damaged edges can be repaired or need limited trimming.
+            </p>
+          )}
           <div className="why-card">
             <div className="card-icon coral"><Layers3 size={19} /></div>
-            <div><strong>Why this matters</strong><span>The final action depends on tissue quality seen during surgery.</span></div>
+            <div>
+              <strong>Why this matters</strong>
+              <span>
+                {isBodyOverview
+                  ? "Whole-body context makes the treatment location unambiguous."
+                  : "The final action depends on tissue quality seen during surgery."}
+              </span>
+            </div>
           </div>
-          <button className="text-button" onClick={() => window.consentLoop3D?.execute({ type: "set-stage", stage: "scope" })}>
-            Next: camera path <ArrowRight size={16} />
+          <button
+            className="text-button"
+            onClick={() =>
+              window.consentLoop3D?.execute(
+                isBodyOverview
+                  ? { type: "focus", target: "knee" }
+                  : { type: "set-stage", stage: "scope" },
+              )
+            }
+          >
+            {isBodyOverview ? "Explore the right knee" : "Next: camera path"} <ArrowRight size={16} />
           </button>
         </section>
         <VoicePanel voiceState={voiceState} onPrompt={onPrompt} onToggle={onVoiceToggle} />

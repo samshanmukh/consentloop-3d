@@ -41,9 +41,8 @@ test("renders accessible journey navigation and non-speech controls", async () =
   const html = await response.text();
 
   assert.match(html, /aria-label="Consent journey"/);
-  assert.match(html, /Interactive 3D knee anatomy/);
+  assert.match(html, /Interactive 3D anatomy/);
   assert.match(html, /Start guided session/);
   assert.match(html, /Compare options/);
   assert.match(html, /Ask for help/);
 });
-

@@ -95,6 +95,21 @@ Valid targets and aliases are published at
 manifest and send only supported semantic IDs. Unknown targets and unsupported
 actions are rejected. Duplicate command IDs are not applied twice.
 
+The viewer starts at `anatomy.body`. Commands that select the knee, meniscus,
+tear, ligaments, portals, or a non-overview procedure stage automatically move
+the camera into the right knee. A body command returns to whole-person
+orientation:
+
+```ts
+await window.consentLoopViz?.execute({
+  schema: "consentloop.viz-command.v1",
+  id: crypto.randomUUID(),
+  issuedAt: new Date().toISOString(),
+  source: { kind: "voice", utterance: "Show the whole person" },
+  action: { type: "target.select", targets: ["anatomy.body"] },
+});
+```
+
 Person 3 can also send the frozen `SceneCommand` type from
 `@consentloop/shared` without knowing the versioned renderer shape:
 
@@ -117,7 +132,16 @@ between the frozen team contract and the renderer's versioned capabilities.
 Visualization commands are intentionally unable to choose a procedure, accept
 a cost estimate, schedule an appointment, or sign consent.
 
-## 3D model
+## 3D models
+
+The whole-body orientation asset is stored at
+`public/models/body/anatomy.glb`. It is a Draco-compressed muscular BodyParts3D
+model with 418 structures. The renderer rotates, normalizes, recolors, and
+merges those structures at runtime to reduce draw calls. Its right-knee anchor
+is the transition point for the detailed joint scene.
+
+The body asset is CC BY-SA 2.1 Japan. Attribution, upstream source, and a record
+of runtime modifications are in `public/models/body/ATTRIBUTION.md`.
 
 The primary knee anatomy asset is stored at
 `public/models/knee/anatomy.glb`. It includes separately named bones, menisci,
