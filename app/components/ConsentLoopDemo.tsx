@@ -52,6 +52,7 @@ import type {
   AnatomyState,
 } from "../lib/anatomy-commands";
 import {
+  getCurrentVisualContext,
   getNextApprovedVoiceAction,
   getVoiceNarrationCue,
   getVoiceVisualizationSequenceError,
@@ -1094,6 +1095,16 @@ function ReviewView({
 
 const voicePromptChips = [
   {
+    id: "walkthrough",
+    label: "Walk me through it",
+    message: "Walk me through the entire knee arthroscopy procedure from the whole body and explain every step as the visualization changes.",
+  },
+  {
+    id: "visible-part",
+    label: "What am I seeing?",
+    message: "What is the highlighted part I am seeing right now, and what is happening here?",
+  },
+  {
     id: "procedure",
     label: "Show the damaged part",
     message: "Show me the damaged part in the 3D model and explain it.",
@@ -1325,6 +1336,19 @@ export function ConsentLoopDemo() {
     }
 
     switch (call.name) {
+      case "inspect_current_visual": {
+        const visualContext = getCurrentVisualContext(
+          visualizationStateRef.current,
+          activeViewRef.current === "anatomy",
+        );
+        return {
+          ok: true,
+          message: visualContext.ready
+            ? "The current 3D scene was inspected without changing it. Answer only from visualContext."
+            : "The 3D scene has not reported a ready visual yet. Do not guess what is visible.",
+          visualContext,
+        };
+      }
       case "open_consent_section":
         navigate(call.arguments.section);
         return {

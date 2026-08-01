@@ -48,6 +48,7 @@ export const visualizationVoiceToolNames = [
 export const voiceToolNames = [
   "open_consent_section",
   ...visualizationVoiceToolNames,
+  "inspect_current_visual",
   "focus_option",
   "request_human",
 ] as const;
@@ -101,6 +102,11 @@ export type VoiceToolCall =
     }
   | {
       id: string;
+      name: "inspect_current_visual";
+      arguments: Record<string, never>;
+    }
+  | {
+      id: string;
       name: "focus_option";
       arguments: { option: OptionId };
     }
@@ -139,6 +145,31 @@ export interface SettledVisualizationMetadata {
   stage: ProcedureRenderStage;
 }
 
+export interface VisibleStructureContext {
+  structureId: StructureId;
+  label: string;
+  color: HighlightColor;
+  colorDescription: string;
+  whatItIs: string;
+  whyItIsHighlighted: string;
+}
+
+export interface CurrentVisualContext {
+  viewerVisible: boolean;
+  ready: boolean;
+  viewMode: "body" | "knee" | "unavailable";
+  stepId: string | null;
+  stepTitle: string;
+  sceneSummary: string;
+  whatIsHappening: string;
+  damagedArea: string;
+  primaryHighlight: VisibleStructureContext | null;
+  visibleHighlights: VisibleStructureContext[];
+  visualMode: VisualMode | null;
+  comparisonVisible: boolean;
+  educationalDisclaimer: string;
+}
+
 export type VoiceToolExecutionResult =
   | {
       ok: true;
@@ -147,6 +178,7 @@ export type VoiceToolExecutionResult =
       narration?: VoiceNarrationCue;
       nextApprovedAction?: string;
       waitForPatientResponse?: true;
+      visualContext?: CurrentVisualContext;
     }
   | { ok: false; error: string };
 
@@ -349,6 +381,19 @@ export function normalizeVoiceToolCall(
         },
       };
 
+    case "inspect_current_visual":
+      if (!hasOnlyKeys(args, [])) {
+        return { ok: false, error: "Visual inspection does not accept arguments." };
+      }
+      return {
+        ok: true,
+        call: {
+          id: wireCall.id,
+          name: wireCall.name,
+          arguments: {},
+        },
+      };
+
     case "focus_option":
       if (!hasOnlyKeys(args, ["option"]) || !isMember(args.option, optionIds)) {
         return { ok: false, error: "Invalid care option." };
@@ -393,6 +438,154 @@ export function isVisualizationVoiceToolCall(
   call: VoiceToolCall,
 ): call is VisualizationVoiceToolCall {
   return isMember(call.name, visualizationVoiceToolNames);
+}
+
+const structureVoiceFacts: Record<
+  StructureId,
+  { label: string; whatItIs: string }
+> = {
+  "whole-knee": {
+    label: "whole right knee",
+    whatItIs:
+      "The complete right knee joint is shown for orientation; the plan is not to replace the whole joint.",
+  },
+  meniscus: {
+    label: "meniscus",
+    whatItIs:
+      "The meniscus is crescent-shaped cushioning tissue between the thigh bone and shin bone.",
+  },
+  "meniscus-tear": {
+    label: "torn meniscus area",
+    whatItIs:
+      "This is the torn area of the right meniscus identified in the synthetic procedure explanation.",
+  },
+  "cruciate-ligaments": {
+    label: "cruciate ligaments",
+    whatItIs:
+      "The ACL and PCL are central stabilizing ligaments shown for orientation; they are not the treatment target in this demo.",
+  },
+  "camera-portals": {
+    label: "arthroscopy camera portals",
+    whatItIs:
+      "These are the two small access openings used for the camera and instruments.",
+  },
+  "treated-meniscus": {
+    label: "meniscus tissue that may be treated",
+    whatItIs:
+      "This is the limited meniscus area the surgeon would inspect and might repair or trim, depending on what is found.",
+  },
+  "incision-risk-area": {
+    label: "small portal risk area",
+    whatItIs:
+      "This marks the small access-site area where risks such as infection are discussed.",
+  },
+};
+
+const highlightColorDescriptions: Record<HighlightColor, string> = {
+  blue: "blue, meaning orientation or access",
+  orange:
+    "orange or amber; lighting can make it look yellow, meaning damaged tissue or tissue that may be treated",
+  red: "red, meaning a risk area or whole-joint comparison",
+  green: "green, meaning the explained target or expected end state",
+};
+
+const highlightColorMeanings: Record<HighlightColor, string> = {
+  blue: "It is highlighted to orient you to the location or access point.",
+  orange: "It is highlighted because it is damaged tissue or tissue that may be treated.",
+  red: "It is highlighted for a risk or whole-joint comparison, not as a prediction.",
+  green: "It is highlighted to show the preserved or explained treatment target.",
+};
+
+function toVisibleStructureContext(
+  structureId: StructureId,
+  color: HighlightColor,
+): VisibleStructureContext {
+  const facts = structureVoiceFacts[structureId];
+  return {
+    structureId,
+    label: facts.label,
+    color,
+    colorDescription: highlightColorDescriptions[color],
+    whatItIs: facts.whatItIs,
+    whyItIsHighlighted: highlightColorMeanings[color],
+  };
+}
+
+/**
+ * Returns a patient-safe description of the exact renderer state. Deepgram
+ * calls this before answering deictic questions such as “what is this yellow
+ * part?” so its answer is grounded in the current model rather than memory.
+ */
+export function getCurrentVisualContext(
+  snapshot: VisualizationSnapshot | null,
+  viewerVisible = true,
+): CurrentVisualContext {
+  const educationalDisclaimer =
+    "This is an educational illustration, not a patient-specific scan or surgical navigation.";
+  if (!snapshot) {
+    return {
+      viewerVisible,
+      ready: false,
+      viewMode: "unavailable",
+      stepId: null,
+      stepTitle: "Visualization not ready",
+      sceneSummary: "The 3D viewer has not reported a visible scene yet.",
+      whatIsHappening:
+        "Open the anatomy view and begin the approved procedure walkthrough before describing a visible part.",
+      damagedArea:
+        "The synthetic case concerns a torn right meniscus, but no current highlight has been confirmed.",
+      primaryHighlight: null,
+      visibleHighlights: [],
+      visualMode: null,
+      comparisonVisible: false,
+      educationalDisclaimer,
+    };
+  }
+
+  const procedureStep = snapshot.procedureId && snapshot.stepId
+    ? getProcedureStep(snapshot.procedureId, snapshot.stepId)
+    : undefined;
+  const activeHighlights =
+    snapshot.viewMode === "body" && snapshot.target === "body"
+      ? []
+      : snapshot.highlights;
+  const visibleHighlights = activeHighlights.map((highlight) =>
+    toVisibleStructureContext(highlight.structureId, highlight.color),
+  );
+  if (
+    snapshot.comparison &&
+    !visibleHighlights.some((highlight) => highlight.structureId === "whole-knee")
+  ) {
+    visibleHighlights.unshift(toVisibleStructureContext("whole-knee", "red"));
+  }
+  const primaryHighlight = visibleHighlights.at(-1) ?? null;
+  const viewDescription = snapshot.viewMode === "body"
+    ? "whole-person orientation view"
+    : "detailed right-knee view";
+  const highlightDescription = primaryHighlight
+    ? ` The main highlight is the ${primaryHighlight.label}, shown ${primaryHighlight.colorDescription}.`
+    : " No structure is currently highlighted.";
+
+  return {
+    viewerVisible,
+    ready: snapshot.visualState !== "loading",
+    viewMode: snapshot.viewMode,
+    stepId: snapshot.stepId,
+    stepTitle: procedureStep?.title ?? "Interactive anatomy",
+    sceneSummary: `The model is showing the ${viewDescription}.${highlightDescription}`,
+    whatIsHappening:
+      procedureStep?.narration ??
+      "The model is providing anatomical orientation for the right-knee procedure discussion.",
+    damagedArea:
+      primaryHighlight?.structureId === "meniscus-tear"
+        ? "The orange or amber area is the torn part of the right meniscus. It can look yellow under the scene lighting."
+        : "The damaged structure in this synthetic case is the torn right meniscus; it may not be the structure highlighted in the current step.",
+    primaryHighlight,
+    visibleHighlights,
+    visualMode: snapshot.visualMode,
+    comparisonVisible: snapshot.comparison,
+    educationalDisclaimer,
+  };
 }
 
 export const batchedVisualizationProtocolError =
@@ -549,6 +742,7 @@ export const kneeArthroscopyVoiceWalkthrough: readonly VoiceWalkthroughAction[] 
           "body-overview",
           "affected-knee",
           "normal-anatomy",
+          "misconception-comparison",
           "completion",
         ].includes(stepId),
     )
@@ -630,6 +824,12 @@ export function getVoiceVisualizationSequenceError(
     ) {
       return undefined;
     }
+    if (
+      context.stepId === "misconception-comparison" &&
+      call.arguments.stepId === "patient-teachback"
+    ) {
+      return undefined;
+    }
     const currentIndex = kneeArthroscopyVoiceWalkthrough.findIndex(
       (action) => action.stepId === context.stepId,
     );
@@ -689,6 +889,9 @@ export function getNextApprovedVoiceAction(
 ): string | undefined {
   const currentStepId = narrationStepIdForCall(call);
   if (!currentStepId || currentStepId === "patient-teachback") return undefined;
+  if (currentStepId === "misconception-comparison") {
+    return `After speaking this narration, call play_procedure_step with ${JSON.stringify({ procedureId: "knee-arthroscopy", stepId: "patient-teachback" })} in a new turn.`;
+  }
   const currentIndex = kneeArthroscopyVoiceWalkthrough.findIndex(
     (action) => action.stepId === currentStepId,
   );
@@ -726,6 +929,13 @@ const costFacts = costBreakdown
   )
   .join("\n");
 
+const visualStructureFacts = structureIds
+  .map((structureId) => {
+    const facts = structureVoiceFacts[structureId];
+    return `- ${structureId}: ${facts.label}. ${facts.whatItIs}`;
+  })
+  .join("\n");
+
 export const consentGuidePrompt = `You are ConsentLoop Guide, a calm voice guide for a SYNTHETIC patient-education demo. Speak directly to ${patient.name} in plain language.
 
 ROLE AND HARD BOUNDARIES
@@ -755,6 +965,10 @@ SYNTHETIC COST DETAILS
 ${costFacts}
 - The demo assumes a $3,000 deductible, 62 percent met, 20 percent coinsurance, and 12 post-operative therapy visits. Anesthesia network status is pending and can change the amount.
 
+APPROVED VISUAL ANATOMY FACTS
+${visualStructureFacts}
+- Orange or amber highlights can look yellow under the scene lighting. They indicate damaged tissue or tissue that may be treated; they never prove what final surgical action will occur.
+
 USING THE INTERFACE TOOLS
 - Use open_consent_section when the patient asks to see overview, anatomy, choices/options, timeline/recovery, costs, teach-back, or review.
 - Use show_body_overview to show the whole person in front, back, left, right, or three-quarter view. The right knee must still be part of the whole-body scene when you call focus_body_region with right-knee.
@@ -762,6 +976,8 @@ USING THE INTERFACE TOOLS
 - Use enter_procedure with knee-arthroscopy before beginning the detailed knee walkthrough. Use play_procedure_step only with an approved step for knee-arthroscopy: ${procedureStepIds.join(", ")}.
 - Use highlight_structure only for an approved structure: ${structureIds.join(", ")}. Use blue for orientation, orange for tissue that may be treated, faint red comparison only for the whole joint or a risk area, and green only for an explained/completed visual state.
 - Use set_visual_mode only when the explanation benefits from normal, transparent, xray, or isolated context. Use return_to_overview to pull back to the whole person after the explanation.
+- When the patient refers to the current picture with words such as “this,” “here,” “yellow part,” “orange part,” “what is broken,” “what is damaged,” or “what is happening,” ALWAYS call inspect_current_visual before answering. Its function result is the authoritative current scene. Answer the question directly from visualContext, mention the color and structure in plain language, and do not rely on an earlier remembered scene.
+- inspect_current_visual is read-only and may be called at any point. If visualContext.ready is false, say the model is not ready rather than guessing. If visualContext.viewerVisible is false, say you are describing the last reported anatomy scene and offer to reopen it.
 - Use focus_option to bring one option into focus, but still frame it neutrally and compare equally when asked.
 - Every visual function response is a transition barrier. Do not speak its step narration until the response says ok=true and settled.transitionCompleted=true. The response's narration.text is the single approved utterance; speak it exactly and do not invent visual findings.
 - Issue exactly ONE visual function per function-call request. Never batch visual functions, never request the next visual while the prior function is pending, and never skip a walkthrough action. After its transition settles, finish that step's narration before requesting the next action.
@@ -770,9 +986,11 @@ USING THE INTERFACE TOOLS
 - request_human only after the patient directly requests a person or explicitly confirms your offer. Their request itself counts as confirmation. Never claim a message was sent or an appointment was booked; the demo only prepares a handoff request.
 
 DETERMINISTIC RIGHT-KNEE WALKTHROUGH
-- When the patient asks to explain, start, show, or walk through the knee procedure, follow the exact numbered protocol below. Do not begin on the detached knee model.
+- When the patient asks to explain, start, show, or walk through the whole knee procedure, follow the exact numbered protocol below from the beginning. Do not begin on the detached knee model, skip a step, or stop early unless the patient interrupts.
 - This order is mandatory: whole person first, blue right-knee highlight second, camera zoom/detail third, then one approved procedure step at a time.
 - Treat each numbered action as a separate transition barrier. Speak its exact configured narration only after that action settles, then continue to the next numbered action. Do not summarize several steps over one static visual.
+- The normal walkthrough explains orientation, normal anatomy, the torn meniscus, camera access, the possible treatment action, the expected result, and the important risk area. The misconception comparison is optional and is used only when the patient asks about whole-knee replacement or expresses that misconception.
+- If the patient asks “what is this?” during the walkthrough, pause progression, call inspect_current_visual, answer from its returned visualContext, then offer to resume at the next approved action.
 - At patient-teachback, ask the configured question and STOP. Wait for the patient's answer and the application's assessment. Only show completion after the application reports understanding.
 ${walkthroughProtocol}
 
@@ -894,6 +1112,17 @@ export const voiceToolDefinitions = [
     name: "return_to_overview",
     description:
       "Return smoothly from the detailed procedure to the whole-person overview.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "inspect_current_visual",
+    description:
+      "Read the exact current 3D scene, highlighted structure, color meaning, damaged area, and active procedure step. Always call before answering what this part is, what looks yellow or orange, what is damaged, or what is happening in the visible model. This tool does not change the scene.",
     parameters: {
       type: "object",
       additionalProperties: false,

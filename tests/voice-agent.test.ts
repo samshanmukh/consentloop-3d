@@ -7,6 +7,7 @@ import {
   createConsentVoiceSessionConfig,
   createDeepgramTokenFactory,
   createVoiceNarrationBarrier,
+  getCurrentVisualContext,
   getNextApprovedVoiceAction,
   getVoiceFunctionProtocolErrors,
   getVoiceNarrationCue,
@@ -24,6 +25,7 @@ import {
   getProcedureStep,
   procedureStepIds,
 } from "../app/lib/procedure-visualization";
+import { initialVisualizationSnapshot } from "../app/lib/visualization-controller";
 
 function wireCall(
   name: string,
@@ -59,6 +61,9 @@ test("agent configuration is grounded and exposes client-side tools only", () =>
   assert.match(consentGuidePrompt, /exactly ONE visual function per function-call request/);
   assert.match(consentGuidePrompt, /settled\.transitionCompleted=true/);
   assert.match(consentGuidePrompt, /Never call enter_procedure until focus_body_region has succeeded/);
+  assert.match(consentGuidePrompt, /ALWAYS call inspect_current_visual before answering/);
+  assert.match(consentGuidePrompt, /yellow part/);
+  assert.match(consentGuidePrompt, /misconception comparison is optional/i);
   assert.match(consentGuidePrompt, /cannot update a clinical record/i);
   assert.equal(consentGuideAgentConfig.listen.provider.model, "flux-general-en");
   assert.equal(consentGuideAgentConfig.speak.provider.model, "aura-2-thalia-en");
@@ -78,7 +83,16 @@ test("guided walkthrough highlights the knee before zooming and advances one con
   );
   assert.deepEqual(
     kneeArthroscopyVoiceWalkthrough.map((action) => action.stepId),
-    procedureStepIds.filter((stepId) => stepId !== "completion"),
+    procedureStepIds.filter(
+      (stepId) =>
+        stepId !== "misconception-comparison" && stepId !== "completion",
+    ),
+  );
+  assert.equal(
+    kneeArthroscopyVoiceWalkthrough.some(
+      (action) => action.stepId === "misconception-comparison",
+    ),
+    false,
   );
   assert.ok(
     kneeArthroscopyVoiceWalkthrough
@@ -245,6 +259,84 @@ test("misconception clarification branches only after the knee detail settles", 
     ) ?? "",
     /controlled by the application/i,
   );
+});
+
+test("visual inspection grounds yellow-part, damage, and current-action questions", () => {
+  const damaged = getCurrentVisualContext({
+    ...initialVisualizationSnapshot,
+    visualState: "procedure",
+    viewMode: "knee",
+    procedureId: "knee-arthroscopy",
+    stepId: "damaged-structure",
+    stage: "tear",
+    target: "tear",
+    visualMode: "isolated",
+    highlights: [{ structureId: "meniscus-tear", color: "orange" }],
+    revision: 4,
+  });
+
+  assert.equal(damaged.ready, true);
+  assert.equal(damaged.viewMode, "knee");
+  assert.equal(damaged.stepTitle, "Damaged meniscus");
+  assert.equal(damaged.primaryHighlight?.structureId, "meniscus-tear");
+  assert.match(damaged.primaryHighlight?.colorDescription ?? "", /yellow/i);
+  assert.match(damaged.primaryHighlight?.whatItIs ?? "", /torn area/i);
+  assert.match(damaged.damagedArea, /torn part of the right meniscus/i);
+  assert.equal(
+    damaged.whatIsHappening,
+    getProcedureStep("knee-arthroscopy", "damaged-structure")?.narration,
+  );
+  assert.match(damaged.educationalDisclaimer, /not a patient-specific scan/i);
+});
+
+test("visual inspection reflects only genuinely visible highlights", () => {
+  const overview = getCurrentVisualContext({
+    ...initialVisualizationSnapshot,
+    visualState: "overview",
+    target: "body",
+  });
+  assert.equal(overview.primaryHighlight, null);
+  assert.equal(overview.visibleHighlights.length, 0);
+
+  const focused = getCurrentVisualContext({
+    ...initialVisualizationSnapshot,
+    visualState: "overview",
+    target: "knee",
+    stepId: "affected-knee",
+  });
+  assert.equal(focused.primaryHighlight?.structureId, "whole-knee");
+  assert.equal(focused.primaryHighlight?.color, "blue");
+
+  const unavailable = getCurrentVisualContext(null, false);
+  assert.equal(unavailable.ready, false);
+  assert.equal(unavailable.viewerVisible, false);
+  assert.equal(unavailable.viewMode, "unavailable");
+});
+
+test("misconception comparison reports both whole joint and treated tissue", () => {
+  const comparison = getCurrentVisualContext({
+    ...initialVisualizationSnapshot,
+    visualState: "misconception-detected",
+    viewMode: "knee",
+    procedureId: "knee-arthroscopy",
+    stepId: "misconception-comparison",
+    stage: "treatment",
+    target: "meniscus",
+    visualMode: "isolated",
+    highlights: [{ structureId: "treated-meniscus", color: "orange" }],
+    comparison: true,
+    revision: 9,
+  });
+
+  assert.deepEqual(
+    comparison.visibleHighlights.map(({ structureId, color }) => ({ structureId, color })),
+    [
+      { structureId: "whole-knee", color: "red" },
+      { structureId: "treated-meniscus", color: "orange" },
+    ],
+  );
+  assert.equal(comparison.primaryHighlight?.structureId, "treated-meniscus");
+  assert.equal(comparison.comparisonVisible, true);
 });
 
 test("a Deepgram request may execute only one visual transition", () => {
@@ -457,6 +549,18 @@ test("all seven visual tool calls map to exact high-level commands", () => {
 
 test("nonvisual tool calls retain strict normalization", () => {
   assert.deepEqual(
+    normalizeVoiceToolCall(wireCall("inspect_current_visual", {})),
+    {
+      ok: true,
+      call: {
+        id: "call-1",
+        name: "inspect_current_visual",
+        arguments: {},
+      },
+    },
+  );
+
+  assert.deepEqual(
     normalizeVoiceToolCall(
       wireCall("open_consent_section", { section: "costs" }),
     ),
@@ -554,6 +658,12 @@ test("tool calls reject malformed, ungrounded, or unconfirmed actions", () => {
   assert.equal(
     normalizeVoiceToolCall(
       wireCall("return_to_overview", { view: "front" }),
+    ).ok,
+    false,
+  );
+  assert.equal(
+    normalizeVoiceToolCall(
+      wireCall("inspect_current_visual", { structureId: "meniscus-tear" }),
     ).ok,
     false,
   );

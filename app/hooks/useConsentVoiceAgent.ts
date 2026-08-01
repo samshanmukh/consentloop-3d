@@ -98,6 +98,7 @@ function defaultToolSuccess(call: VoiceToolCall): VoiceToolExecutionResult {
     highlight_structure: "The requested approved structure is now highlighted.",
     set_visual_mode: "The requested visualization mode is now active.",
     return_to_overview: "The visualization returned to the whole-body overview.",
+    inspect_current_visual: "The current visualization context is ready to explain.",
     focus_option: "The requested option is now in focus; no preference was recorded.",
     request_human: "The confirmed handoff request is ready for the patient to review.",
   };

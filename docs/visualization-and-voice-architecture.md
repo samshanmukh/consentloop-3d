@@ -53,6 +53,12 @@ During entry the controller first focuses the configured region. The renderer ho
 - `set_visual_mode(mode)`
 - `return_to_overview()`
 
+The read-only `inspect_current_visual()` tool sits beside those seven renderer
+commands. It returns the current scene, active procedure step, actually visible
+highlights, patient-facing color meaning, and approved anatomy facts. Deictic
+questions such as “what is this?” or “what is the yellow part?” must inspect
+the scene before the agent answers.
+
 `voiceToolToVisualizationCommand` is the only voice-to-renderer adapter. All arguments are allowlisted twice: first when the Deepgram wire call is normalized, then when the controller executes it. Procedure entry is rejected until the right knee has been focused, and detailed steps are rejected until entry settles. The bridge waits for the renderer to acknowledge the expected body or knee layer before returning success, including in reduced-motion mode. Deepgram receives one canonical configured utterance and settled scene metadata after each tool result, may execute only one visual transition per function-call request, and advances through the walkthrough one narration turn at a time. Skips, rewinds, and voice-triggered completion are rejected; completion remains an application action after assessed teach-back. The next visual stays blocked until audio playback finishes or the patient interrupts. Nonvisual tools may still open a consent section, focus an equal-weight option card, or prepare a confirmed human handoff.
 
 The whole-knee misconception is a configured sequence rather than model-generated behavior. `misconception-comparison` renders the complete joint faint red and the possible treated meniscus orange. `patient-teachback` asks the approved prompt and waits. The application then records an `understood`, `contradicted`, or `uncertain` result; visual tools cannot grade or store it.
