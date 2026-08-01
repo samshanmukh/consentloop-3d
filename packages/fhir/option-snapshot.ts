@@ -69,7 +69,11 @@ export function buildOptionSnapshot(input: SnapshotInput): OptionSnapshot {
 }
 
 function snapshotMaterial(snapshot: OptionSnapshot): Omit<OptionSnapshot, 'id' | 'snapshotVersion' | 'createdAt'> {
-  const materialOptions = snapshot.options.map(({ preference: _preference, questions: _questions, ...option }) => option);
+  const materialOptions = snapshot.options.map(({ preference, questions, ...option }) => {
+    void preference;
+    void questions;
+    return option;
+  });
   return {
     patientId: snapshot.patientId,
     serviceRequestId: snapshot.serviceRequestId,

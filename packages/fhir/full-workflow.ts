@@ -1,5 +1,5 @@
 import type { MedplumClient } from '@medplum/core';
-import type { CarePlan, Consent, Provenance, QuestionnaireResponse, Task } from '@medplum/fhirtypes';
+import type { CarePlan, Consent, Provenance, QuestionnaireResponse } from '@medplum/fhirtypes';
 import {
   canonicalJson,
   ASSESS_BOT_IDENTIFIER,
@@ -17,7 +17,7 @@ import {
   type ConsentWorkflow,
 } from '../shared/index.js';
 import { deployAssessmentAutomation, executeAssessmentAutomation } from './assess-automation.js';
-import { DEMO_IDENTIFIERS, identifierQuery, seedDemo } from './demo-resources.js';
+import { identifierQuery, seedDemo } from './demo-resources.js';
 import { getStringExtension, replaceStringExtension } from './extensions.js';
 import { buildReviewRequestBundle, buildReviewResolutionBundle } from './option-actions.js';
 import { readOptionSnapshot } from './option-snapshot.js';

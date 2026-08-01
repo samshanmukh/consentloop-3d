@@ -1,7 +1,8 @@
 import type { BotEvent, MedplumClient } from '@medplum/core';
-import type { Bundle, BundleEntry, CarePlan, Consent, Provenance, QuestionnaireResponse, Resource, Task } from '@medplum/fhirtypes';
+import type { Bundle, BundleEntry, CarePlan, Consent, QuestionnaireResponse, Resource, Task } from '@medplum/fhirtypes';
 import {
   canonicalJson,
+  comprehensionConceptIdSchema,
   consentWorkflowSchema,
   defaultComprehensionConcepts,
   demoTag,
@@ -49,11 +50,12 @@ export function validateAssessmentResponse(response: QuestionnaireResponse): ass
 export function readTeachBackResults(response: QuestionnaireResponse): TeachBackResult[] {
   const expected = new Set(defaultComprehensionConcepts().map((concept) => concept.id));
   const results = (response.item ?? []).map((item) => {
-    if (!item.linkId || !expected.has(item.linkId)) throw new Error(`Unexpected teach-back concept: ${item.linkId ?? 'missing'}`);
+    const conceptId = comprehensionConceptIdSchema.safeParse(item.linkId);
+    if (!conceptId.success || !expected.has(conceptId.data)) throw new Error(`Unexpected teach-back concept: ${item.linkId ?? 'missing'}`);
     const encoded = item.answer?.[0]?.valueString;
     if (!encoded) throw new Error(`Teach-back result is missing for ${item.linkId}`);
     const result = teachBackResultSchema.parse(JSON.parse(encoded));
-    if (result.conceptId !== item.linkId) throw new Error(`Teach-back concept mismatch for ${item.linkId}`);
+    if (result.conceptId !== conceptId.data) throw new Error(`Teach-back concept mismatch for ${item.linkId}`);
     return result;
   });
   if (results.length !== expected.size || new Set(results.map((result) => result.conceptId)).size !== expected.size) {

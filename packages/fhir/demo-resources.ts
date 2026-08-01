@@ -208,7 +208,7 @@ function questionnaireResource(): Questionnaire {
     item: [
       { linkId: 'procedure-identity', text: 'Describe the procedure or plan being considered.', type: 'text', required: true },
       { linkId: 'tissue-treated', text: 'Which tissue is being treated or preserved?', type: 'text', required: true },
-      { linkId: 'important-limitation-risk', text: 'Name one important limitation or risk.', type: 'text', required: true },
+      { linkId: 'risk-limitation', text: 'Name one important limitation or risk.', type: 'text', required: true },
     ],
   };
 }

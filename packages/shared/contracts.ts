@@ -4,6 +4,31 @@ const nonEmpty = z.string().trim().min(1);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u, 'Expected YYYY-MM-DD');
 const reference = z.string().regex(/^[A-Z][A-Za-z]+\/[A-Za-z0-9.-]+$/u, 'Expected a FHIR reference');
 
+export const sceneIdSchema = z.enum([
+  'normal-knee',
+  'damaged-meniscus',
+  'arthroscope-insertion',
+  'treated-region',
+]);
+
+export const comprehensionConceptIdSchema = z.enum([
+  'procedure-identity',
+  'tissue-treated',
+  'risk-limitation',
+]);
+
+export type SceneCommand =
+  | { type: 'focus'; target: 'meniscus' | 'incision' | 'joint' }
+  | { type: 'highlight'; target: string; color: string }
+  | { type: 'animate'; animation: string }
+  | { type: 'reset' };
+
+export const CONCEPT_DEFINITIONS = {
+  'procedure-identity': { title: 'What procedure is being performed', critical: true, sceneId: 'arthroscope-insertion' },
+  'tissue-treated': { title: 'Which tissue is being treated', critical: true, sceneId: 'damaged-meniscus' },
+  'risk-limitation': { title: 'A key risk or limitation of the procedure', critical: true, sceneId: 'treated-region' },
+} as const;
+
 export const clinicalStatusSchema = z.enum([
   'appropriate',
   'not-appropriate',
@@ -121,15 +146,15 @@ export const comprehensionStatusSchema = z.enum([
 ]);
 
 export const comprehensionConceptSchema = z.object({
-  id: nonEmpty,
+  id: comprehensionConceptIdSchema,
   title: nonEmpty,
   critical: z.boolean(),
   status: comprehensionStatusSchema,
-  sceneId: nonEmpty,
+  sceneId: sceneIdSchema,
 });
 
 export const teachBackResultSchema = z.object({
-  conceptId: nonEmpty,
+  conceptId: comprehensionConceptIdSchema,
   status: comprehensionStatusSchema,
   evidence: nonEmpty,
   misconception: nonEmpty.optional(),
@@ -178,6 +203,8 @@ export type TreatmentOption = z.infer<typeof treatmentOptionSchema>;
 export type OptionPreference = z.infer<typeof optionPreferenceSchema>;
 export type OptionQuestion = z.infer<typeof optionQuestionSchema>;
 export type OptionSnapshot = z.infer<typeof optionSnapshotSchema>;
+export type SceneId = z.infer<typeof sceneIdSchema>;
+export type ComprehensionConceptId = z.infer<typeof comprehensionConceptIdSchema>;
 export type ComprehensionConcept = z.infer<typeof comprehensionConceptSchema>;
 export type ComprehensionStatus = z.infer<typeof comprehensionStatusSchema>;
 export type TeachBackResult = z.infer<typeof teachBackResultSchema>;

@@ -2,9 +2,9 @@ import { consentWorkflowSchema, type ComprehensionConcept, type ConsentWorkflow 
 
 export function defaultComprehensionConcepts(): ComprehensionConcept[] {
   return [
-    { id: 'procedure-identity', title: 'Procedure identity', critical: true, status: 'not-discussed', sceneId: 'procedure' },
-    { id: 'tissue-treated', title: 'Tissue being treated', critical: true, status: 'not-discussed', sceneId: 'meniscus' },
-    { id: 'important-limitation-risk', title: 'Important limitation or risk', critical: true, status: 'not-discussed', sceneId: 'risk' },
+    { id: 'procedure-identity', title: 'Procedure identity', critical: true, status: 'not-discussed', sceneId: 'arthroscope-insertion' },
+    { id: 'tissue-treated', title: 'Tissue being treated', critical: true, status: 'not-discussed', sceneId: 'damaged-meniscus' },
+    { id: 'risk-limitation', title: 'Important limitation or risk', critical: true, status: 'not-discussed', sceneId: 'treated-region' },
   ];
 }
 

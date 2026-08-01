@@ -44,7 +44,6 @@ import {
 import { stringExtension } from '../../packages/fhir/extensions.js';
 
 const PROVENANCE_TAG_PREFIX = 'prepare-provenance:';
-const SESSION_RESOURCE_PREFIXES = ['options', 'task', 'consent', 'questionnaire-response'] as const;
 
 export interface PreparationInput {
   request: Identified<ServiceRequest>;
@@ -62,7 +61,7 @@ function reference<T extends Resource>(resource: Identified<T>): { reference: st
   return { reference: `${resource.resourceType}/${resource.id}` };
 }
 
-function sessionIdentifier(prefix: (typeof SESSION_RESOURCE_PREFIXES)[number], requestId: string): string {
+function sessionIdentifier(prefix: 'options' | 'task' | 'consent' | 'questionnaire-response', requestId: string): string {
   return `${prefix}:${requestId}`;
 }
 
