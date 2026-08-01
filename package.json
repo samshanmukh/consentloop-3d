@@ -7,6 +7,7 @@
     "bots/*"
   ],
   "scripts": {
+    "selftest": "tsx scripts/selftest.ts",
     "seed": "tsx scripts/seed-demo.ts",
     "reset": "tsx scripts/reset-demo.ts",
     "create-order": "tsx scripts/create-service-request.ts",

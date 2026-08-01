@@ -122,6 +122,20 @@ async function main() {
   check("Consent active", correctedResult?.consentStatus === "active");
   check("No further clinician escalation", !correctedResult?.clinicianTaskId);
 
+  // Assert the *stored* state, not just the returned summary: the escalation
+  // opened in step 2 must actually be closed in Medplum, or the clinician's
+  // unresolved-task queue still shows it after the demo's happy ending.
+  const escalation = await medplum.readResource("Task", contradictedResult!.clinicianTaskId!);
+  check("Earlier clinician escalation closed", escalation.status === "completed", `status=${escalation.status}`);
+
+  console.log("\n4. Stray redelivery after activation is a no-op");
+  const replayed = await assessTeachback(medplum, { input: correctedQr } as never);
+  const consentAfterReplay = await medplum.readResource("Consent", prepared.consent.id!);
+  const taskAfterReplay = await medplum.readResource("Task", prepared.task.id!);
+  check("Consent still active", consentAfterReplay.status === "active");
+  check("Education task still completed", taskAfterReplay.status === "completed");
+  check("No escalation reopened", !replayed?.clinicianTaskId);
+
   console.log(`\n${failures === 0 ? "✅ all checks passed" : `❌ ${failures} check(s) failed`}`);
   console.log("\nRun `npm run reset` to clear this run before the next take.");
   if (failures > 0) process.exit(1);

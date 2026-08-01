@@ -105,6 +105,19 @@ export async function applyWorkflowRules(
   const action = deriveConsentAction(concepts);
   const isFinalSubmission = qr.status === "completed";
 
+  // Consent is a one-way door (see the invariant below) — once it's active,
+  // the session is over. A stray redelivered QuestionnaireResponse must not
+  // be able to reopen the education Task out from under an already-final
+  // Consent, so this whole pass is a no-op once that door has closed.
+  if (consent.status === "active") {
+    return {
+      action,
+      taskStatus: task.status,
+      consentStatus: consent.status,
+      clinicianTaskId: undefined,
+    };
+  }
+
   let taskStatus: Task["status"] = task.status;
   if (action.needsClinician) taskStatus = "on-hold";
   else if (action.allUnderstood) taskStatus = "completed";
@@ -118,15 +131,13 @@ export async function applyWorkflowRules(
     });
   }
 
-  let consentStatus: Consent["status"] = consent.status;
-  if (action.allUnderstood && isFinalSubmission) {
-    consentStatus = "active";
-  } else if (consentStatus !== "active") {
-    consentStatus = "draft";
-  }
-  // A Consent that already reached "active" is never silently reverted by a
-  // later re-read — only a fresh contradiction on a *new* demo run does that,
-  // and a new run gets a fresh Consent resource, not this one.
+  // The early return above already guarantees consent.status !== "active"
+  // here, so this is a plain two-way choice: activate on evidence, otherwise
+  // stay draft. Consent can only ever move draft → active, never the
+  // reverse — that's what makes it safe for a stray redelivery to re-run
+  // this function without risking an already-active Consent.
+  const consentStatus: Consent["status"] =
+    action.allUnderstood && isFinalSubmission ? "active" : "draft";
 
   if (consentStatus !== consent.status) {
     consent = await medplum.updateResource<Consent>({
@@ -136,7 +147,19 @@ export async function applyWorkflowRules(
   }
 
   let clinicianTaskId: string | undefined;
-  if (action.needsClinician) {
+  if (!action.needsClinician) {
+    // The misconception that opened an escalation has been resolved — close
+    // it out, or the clinician's unresolved-task queue keeps showing an
+    // escalation for a session that already reached a good end state.
+    const stale = await findClinicianTask(medplum, task);
+    if (stale && stale.status !== "completed") {
+      await medplum.updateResource<Task>({
+        ...stale,
+        status: "completed",
+        businessStatus: { text: `Resolved: ${action.reason}` },
+      });
+    }
+  } else {
     const existing = await findClinicianTask(medplum, task);
     if (existing) {
       clinicianTaskId = existing.id;
