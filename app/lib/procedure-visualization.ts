@@ -244,8 +244,6 @@ export const kneeArthroscopyProcedure: ProcedureVisualization = {
       narration:
         "This is not a whole-knee replacement. The complete joint is shown faintly in red while the much smaller meniscus area is orange.",
       requiredConceptId: "tissue-treated",
-      patientQuestionPrompt:
-        "In your own words, what part of the knee may be treated?",
       render: {
         stage: "treatment",
         target: "meniscus",

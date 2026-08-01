@@ -6,12 +6,24 @@ import {
   consentGuidePrompt,
   createConsentVoiceSessionConfig,
   createDeepgramTokenFactory,
+  createVoiceNarrationBarrier,
+  getNextApprovedVoiceAction,
+  getVoiceFunctionProtocolErrors,
+  getVoiceNarrationCue,
+  getVoiceVisualizationSequenceError,
   isVisualizationVoiceToolCall,
+  kneeArthroscopyVoiceWalkthrough,
   normalizeVoiceToolCall,
+  reduceVoiceNarrationBarrier,
+  serializeVoiceToolResult,
   voiceToolToVisualizationCommand,
   voiceToolDefinitions,
   voiceToolNames,
 } from "../app/lib/voice-agent";
+import {
+  getProcedureStep,
+  procedureStepIds,
+} from "../app/lib/procedure-visualization";
 
 function wireCall(
   name: string,
@@ -43,9 +55,341 @@ test("agent configuration is grounded and exposes client-side tools only", () =>
     consentGuidePrompt,
     /misconception-comparison[\s\S]*patient-teachback/,
   );
+  assert.match(consentGuidePrompt, /whole person first, blue right-knee highlight second, camera zoom\/detail third/i);
+  assert.match(consentGuidePrompt, /exactly ONE visual function per function-call request/);
+  assert.match(consentGuidePrompt, /settled\.transitionCompleted=true/);
+  assert.match(consentGuidePrompt, /Never call enter_procedure until focus_body_region has succeeded/);
   assert.match(consentGuidePrompt, /cannot update a clinical record/i);
   assert.equal(consentGuideAgentConfig.listen.provider.model, "flux-general-en");
   assert.equal(consentGuideAgentConfig.speak.provider.model, "aura-2-thalia-en");
+});
+
+test("guided walkthrough highlights the knee before zooming and advances one configured step at a time", () => {
+  assert.deepEqual(
+    kneeArthroscopyVoiceWalkthrough.slice(0, 3).map(({ stepId, toolName }) => ({
+      stepId,
+      toolName,
+    })),
+    [
+      { stepId: "body-overview", toolName: "show_body_overview" },
+      { stepId: "affected-knee", toolName: "focus_body_region" },
+      { stepId: "normal-anatomy", toolName: "enter_procedure" },
+    ],
+  );
+  assert.deepEqual(
+    kneeArthroscopyVoiceWalkthrough.map((action) => action.stepId),
+    procedureStepIds.filter((stepId) => stepId !== "completion"),
+  );
+  assert.ok(
+    kneeArthroscopyVoiceWalkthrough
+      .slice(3)
+      .every((action) => action.toolName === "play_procedure_step"),
+  );
+});
+
+test("voice walkthrough rejects skipped, rewound, and premature completion steps", () => {
+  const normalizeVisual = (name: string, args: Record<string, unknown>) => {
+    const normalized = normalizeVoiceToolCall(wireCall(name, args));
+    assert.equal(normalized.ok, true);
+    if (!normalized.ok || !isVisualizationVoiceToolCall(normalized.call)) {
+      assert.fail(`Expected ${name} to be a visual call`);
+    }
+    return normalized.call;
+  };
+  const procedureContext = {
+    viewMode: "knee" as const,
+    visualState: "procedure" as const,
+    stepId: "normal-anatomy",
+  };
+
+  assert.equal(
+    getVoiceVisualizationSequenceError(
+      normalizeVisual("play_procedure_step", {
+        procedureId: "knee-arthroscopy",
+        stepId: "damaged-structure",
+      }),
+      procedureContext,
+    ),
+    undefined,
+  );
+  assert.match(
+    getVoiceVisualizationSequenceError(
+      normalizeVisual("play_procedure_step", {
+        procedureId: "knee-arthroscopy",
+        stepId: "access-point",
+      }),
+      procedureContext,
+    ) ?? "",
+    /next approved narrated step is damaged-structure/i,
+  );
+  assert.match(
+    getVoiceVisualizationSequenceError(
+      normalizeVisual("play_procedure_step", {
+        procedureId: "knee-arthroscopy",
+        stepId: "completion",
+      }),
+      { ...procedureContext, visualState: "asking-teachback", stepId: "patient-teachback" },
+    ) ?? "",
+    /controlled by the application/i,
+  );
+  assert.match(
+    getVoiceVisualizationSequenceError(
+      normalizeVisual("play_procedure_step", {
+        procedureId: "knee-arthroscopy",
+        stepId: "affected-knee",
+      }),
+      procedureContext,
+    ) ?? "",
+    /dedicated overview/i,
+  );
+});
+
+test("misconception clarification branches only after the knee detail settles", () => {
+  const normalizeVisual = (name: string, args: Record<string, unknown>) => {
+    const normalized = normalizeVoiceToolCall(wireCall(name, args));
+    assert.equal(normalized.ok, true);
+    if (!normalized.ok || !isVisualizationVoiceToolCall(normalized.call)) {
+      assert.fail(`Expected ${name} to be a visual call`);
+    }
+    return normalized.call;
+  };
+
+  const showBody = normalizeVisual("show_body_overview", {
+    view: "three-quarter",
+  });
+  assert.equal(
+    getVoiceVisualizationSequenceError(showBody, null),
+    undefined,
+  );
+
+  const focusKnee = normalizeVisual("focus_body_region", {
+    regionId: "right-knee",
+  });
+  assert.equal(
+    getVoiceVisualizationSequenceError(focusKnee, {
+      viewMode: "body",
+      visualState: "overview",
+      stepId: "body-overview",
+    }),
+    undefined,
+  );
+
+  const enterProcedure = normalizeVisual("enter_procedure", {
+    procedureId: "knee-arthroscopy",
+  });
+  assert.equal(
+    getVoiceVisualizationSequenceError(enterProcedure, {
+      viewMode: "body",
+      visualState: "overview",
+      stepId: "affected-knee",
+    }),
+    undefined,
+  );
+
+  const showMisconception = normalizeVisual("play_procedure_step", {
+    procedureId: "knee-arthroscopy",
+    stepId: "misconception-comparison",
+  });
+  assert.match(
+    getVoiceVisualizationSequenceError(showMisconception, {
+      viewMode: "body",
+      visualState: "overview",
+      stepId: "affected-knee",
+    }) ?? "",
+    /detailed knee handoff/i,
+  );
+  assert.match(
+    getVoiceVisualizationSequenceError(showMisconception, {
+      viewMode: "knee",
+      visualState: "entering-procedure",
+      stepId: "normal-anatomy",
+    }) ?? "",
+    /wait for the detailed knee handoff/i,
+  );
+  assert.equal(
+    getVoiceVisualizationSequenceError(showMisconception, {
+      viewMode: "knee",
+      visualState: "procedure",
+      stepId: "normal-anatomy",
+    }),
+    undefined,
+  );
+  assert.match(
+    getNextApprovedVoiceAction(showMisconception) ?? "",
+    /patient-teachback/,
+  );
+
+  const askTeachback = normalizeVisual("play_procedure_step", {
+    procedureId: "knee-arthroscopy",
+    stepId: "patient-teachback",
+  });
+  assert.equal(
+    getVoiceVisualizationSequenceError(askTeachback, {
+      viewMode: "knee",
+      visualState: "misconception-detected",
+      stepId: "misconception-comparison",
+    }),
+    undefined,
+  );
+  assert.match(
+    getVoiceVisualizationSequenceError(
+      normalizeVisual("play_procedure_step", {
+        procedureId: "knee-arthroscopy",
+        stepId: "completion",
+      }),
+      {
+        viewMode: "knee",
+        visualState: "asking-teachback",
+        stepId: "patient-teachback",
+      },
+    ) ?? "",
+    /controlled by the application/i,
+  );
+});
+
+test("a Deepgram request may execute only one visual transition", () => {
+  const errors = getVoiceFunctionProtocolErrors([
+    wireCall("show_body_overview", { view: "three-quarter" }),
+    wireCall("open_consent_section", { section: "anatomy" }),
+    wireCall("focus_body_region", { regionId: "right-knee" }),
+    wireCall("enter_procedure", { procedureId: "knee-arthroscopy" }),
+  ]);
+  assert.equal(errors[0], undefined);
+  assert.equal(errors[1], undefined);
+  assert.match(errors[2] ?? "", /Only one visual transition/);
+  assert.match(errors[3] ?? "", /Narrate the first settled step/);
+});
+
+test("the next visual transition waits for audible narration or a patient interruption", () => {
+  const awaiting = reduceVoiceNarrationBarrier("ready", "visual-settled");
+  assert.equal(awaiting, "awaiting-narration");
+  assert.equal(
+    reduceVoiceNarrationBarrier(awaiting, "audio-finished"),
+    "ready",
+  );
+  assert.equal(
+    reduceVoiceNarrationBarrier(awaiting, "user-interrupted"),
+    "ready",
+  );
+  assert.equal(reduceVoiceNarrationBarrier(awaiting, "reset"), "ready");
+});
+
+test("an early visual call remains queued until audible narration finishes", async () => {
+  const barrier = createVoiceNarrationBarrier();
+  barrier.transition("visual-settled");
+
+  let released = false;
+  const waitingCall = barrier.waitUntilReady().then(() => {
+    released = true;
+  });
+  await Promise.resolve();
+
+  assert.equal(barrier.state, "awaiting-narration");
+  assert.equal(released, false);
+
+  barrier.transition("audio-finished");
+  await waitingCall;
+
+  assert.equal(barrier.state, "ready");
+  assert.equal(released, true);
+});
+
+test("a patient interruption releases an early queued visual call", async () => {
+  const barrier = createVoiceNarrationBarrier();
+  barrier.transition("visual-settled");
+
+  const waitingCall = barrier.waitUntilReady();
+  barrier.transition("user-interrupted");
+  await waitingCall;
+
+  assert.equal(barrier.state, "ready");
+});
+
+test("reset releases narration waiters during session disposal", async () => {
+  const barrier = createVoiceNarrationBarrier();
+  barrier.transition("visual-settled");
+
+  const waitingCalls = [
+    barrier.waitUntilReady(),
+    barrier.waitUntilReady(),
+  ];
+  barrier.transition("reset");
+  await Promise.all(waitingCalls);
+
+  assert.equal(barrier.state, "ready");
+});
+
+test("each walkthrough visual tool returns narration grounded in procedure configuration", () => {
+  for (const action of kneeArthroscopyVoiceWalkthrough) {
+    const normalized = normalizeVoiceToolCall(wireCall(action.toolName, action.arguments));
+    assert.equal(normalized.ok, true);
+    if (!normalized.ok || !isVisualizationVoiceToolCall(normalized.call)) continue;
+    const cue = getVoiceNarrationCue(normalized.call);
+    const configured = getProcedureStep("knee-arthroscopy", action.stepId);
+    assert.ok(cue);
+    assert.equal(cue.stepId, action.stepId);
+    assert.equal(
+      cue.text,
+      action.stepId === "patient-teachback"
+        ? configured?.patientQuestionPrompt
+        : configured?.narration,
+    );
+    assert.equal(cue.speakAfterSettled, true);
+  }
+
+  const focus = normalizeVoiceToolCall(
+    wireCall("focus_body_region", { regionId: "right-knee" }),
+  );
+  assert.equal(focus.ok, true);
+  if (focus.ok && isVisualizationVoiceToolCall(focus.call)) {
+    assert.match(getNextApprovedVoiceAction(focus.call) ?? "", /enter_procedure/);
+  }
+
+  const teachback = normalizeVoiceToolCall(
+    wireCall("play_procedure_step", {
+      procedureId: "knee-arthroscopy",
+      stepId: "patient-teachback",
+    }),
+  );
+  assert.equal(teachback.ok, true);
+  if (teachback.ok && isVisualizationVoiceToolCall(teachback.call)) {
+    assert.equal(getNextApprovedVoiceAction(teachback.call), undefined);
+    assert.equal(
+      getVoiceNarrationCue(teachback.call)?.text,
+      "In your own words, what part of the knee may be treated?",
+    );
+  }
+});
+
+test("settled visualization metadata survives function response serialization", () => {
+  const serialized = serializeVoiceToolResult({
+    ok: true,
+    message: "Right knee is highlighted.",
+    settled: {
+      transitionCompleted: true,
+      stateRevision: 7,
+      visualState: "focusing-region",
+      viewMode: "body",
+      activeRegionId: "right-knee",
+      procedureId: "knee-arthroscopy",
+      stepId: "affected-knee",
+      stage: "overview",
+    },
+    narration: {
+      procedureId: "knee-arthroscopy",
+      stepId: "affected-knee",
+      title: "Affected knee location",
+      text: getProcedureStep("knee-arthroscopy", "affected-knee")!.narration,
+      speakAfterSettled: true,
+    },
+  });
+  const response = JSON.parse(serialized);
+  assert.equal(response.settled.transitionCompleted, true);
+  assert.equal(response.settled.stepId, "affected-knee");
+  assert.equal(
+    response.narration.text,
+    getProcedureStep("knee-arthroscopy", "affected-knee")?.narration,
+  );
 });
 
 function visualizationCommand(

@@ -52,10 +52,13 @@ import {
 } from "../lib/procedure-visualization";
 import {
   executeVisualizationControl,
+  getExpectedVisualizationRenderCommit,
   initialVisualizationSnapshot,
+  isVisualizationRenderCommitSatisfied,
   settleVisualizationState,
   visualizationCapabilities,
   type VisualizationControlCommand,
+  type VisualizationRenderCommit,
   type VisualizationRejectCode,
   type VisualizationSnapshot,
 } from "../lib/visualization-controller";
@@ -71,6 +74,8 @@ const stageLabels: Record<ProcedureStage, string> = {
 
 const RIGHT_KNEE_REGION = bodyRegions["right-knee"];
 const RIGHT_KNEE_ANCHOR = new THREE.Vector3(...RIGHT_KNEE_REGION.worldPosition);
+type SceneLayer = VisualizationRenderCommit["layer"];
+type CameraPhase = VisualizationRenderCommit["phase"];
 
 interface KneeViewerProps {
   compact?: boolean;
@@ -161,18 +166,20 @@ function SoftTissueMaterial({ highlighted = false }: { highlighted?: boolean }) 
 function CameraDirector({
   controls,
   state,
+  phase,
   reducedMotion,
   userInteracting,
 }: {
   controls: React.RefObject<CameraControlsImpl | null>;
   state: VisualizationSnapshot;
+  phase: "body-overview" | "body-region" | "knee-detail";
   reducedMotion: boolean;
   userInteracting: React.RefObject<boolean>;
 }) {
-  const isBody = state.viewMode === "body";
-  const isRegionFocus = isBody && state.target !== "body";
-  const bodyRotation = isBody && !isRegionFocus ? state.rotation : 0;
-  const framingKey = `${isBody ? "body" : "knee"}:${isRegionFocus ? "region" : "scene"}:${bodyRotation}`;
+  const isBodyOverview = phase === "body-overview";
+  const isRegionFocus = phase === "body-region";
+  const bodyRotation = isBodyOverview ? state.rotation : 0;
+  const framingKey = `${phase}:${bodyRotation}`;
   const previousFramingKey = useRef<string | null>(null);
 
   useEffect(() => {
@@ -181,15 +188,15 @@ function CameraDirector({
 
     const target = isRegionFocus
       ? new THREE.Vector3(...RIGHT_KNEE_REGION.cameraTarget)
-      : isBody
+      : isBodyOverview
         ? new THREE.Vector3(0, 0, 0)
         : RIGHT_KNEE_ANCHOR;
-    const distance = (isBody ? 10.8 : 3.65) / state.zoom;
+    const distance = (isBodyOverview ? 10.8 : 3.65) / state.zoom;
     const focusDistance = new THREE.Vector3(...RIGHT_KNEE_REGION.cameraPosition)
       .distanceTo(new THREE.Vector3(...RIGHT_KNEE_REGION.cameraTarget));
     if (previousFramingKey.current === framingKey) {
       void instance.dollyTo(
-        (isRegionFocus ? focusDistance : isBody ? 10.8 : 3.65) / state.zoom,
+        (isRegionFocus ? focusDistance : isBodyOverview ? 10.8 : 3.65) / state.zoom,
         !reducedMotion,
       );
       return;
@@ -199,7 +206,7 @@ function CameraDirector({
       ? new THREE.Vector3(...RIGHT_KNEE_REGION.cameraPosition)
       : new THREE.Vector3(
           target.x + Math.sin(bodyRotation) * distance,
-          target.y + (isBody ? 0.16 : 0.06),
+          target.y + (isBodyOverview ? 0.16 : 0.06),
           target.z + Math.cos(bodyRotation) * distance,
         );
 
@@ -216,10 +223,10 @@ function CameraDirector({
       target.z,
       !reducedMotion,
     );
-  }, [bodyRotation, controls, framingKey, isBody, isRegionFocus, reducedMotion, state.zoom]);
+  }, [bodyRotation, controls, framingKey, isBodyOverview, isRegionFocus, reducedMotion, state.zoom]);
 
   useFrame((_, delta) => {
-    if (isBody && state.autoRotate && !reducedMotion && !userInteracting.current) {
+    if (isBodyOverview && state.autoRotate && !reducedMotion && !userInteracting.current) {
       void controls.current?.rotate(delta * 0.075, 0, false);
     }
   });
@@ -335,7 +342,12 @@ function FullBodyModel({
         : state.visualMode === "normal"
           ? 0.76
           : 0.64;
-  const bodyOpacityTarget = state.viewMode === "body" ? overviewOpacity : 0.12;
+  const bodyOpacityTarget = overviewOpacity;
+  const showKneeHighlight =
+    state.target !== "body" ||
+    state.highlights.some(
+      (highlight) => highlight.structureId === "whole-knee" && highlight.color === "green",
+    );
 
   useFrame((clock, delta) => {
     const material = bodyMaterial.current;
@@ -347,7 +359,7 @@ function FullBodyModel({
       material.depthWrite = material.opacity > 0.45;
     }
     if (internal) {
-      const internalTarget = state.viewMode === "body" ? 0.11 : 0.025;
+      const internalTarget = 0.11;
       internal.opacity = reducedMotion
         ? internalTarget
         : THREE.MathUtils.damp(internal.opacity, internalTarget, 4.5, delta);
@@ -398,21 +410,25 @@ function FullBodyModel({
             depthWrite={false}
           />
         </mesh>
-        <mesh ref={kneePulse} position={RIGHT_KNEE_ANCHOR.toArray()}>
-          <sphereGeometry args={[0.17, 28, 28]} />
-          <meshPhysicalMaterial
-            color={regionColor}
-            emissive={regionColor}
-            emissiveIntensity={state.viewMode === "body" ? 1.9 : 0.55}
-            transparent
-            opacity={state.viewMode === "body" ? 0.7 : 0.22}
-            depthWrite={false}
-          />
-        </mesh>
-        <mesh position={RIGHT_KNEE_ANCHOR.toArray()}>
-          <torusGeometry args={[0.29, 0.025, 14, 72]} />
-          <meshBasicMaterial color={regionColor} transparent opacity={0.82} depthWrite={false} />
-        </mesh>
+        {showKneeHighlight && (
+          <>
+            <mesh ref={kneePulse} position={RIGHT_KNEE_ANCHOR.toArray()}>
+              <sphereGeometry args={[0.17, 28, 28]} />
+              <meshPhysicalMaterial
+                color={regionColor}
+                emissive={regionColor}
+                emissiveIntensity={1.9}
+                transparent
+                opacity={0.7}
+                depthWrite={false}
+              />
+            </mesh>
+            <mesh position={RIGHT_KNEE_ANCHOR.toArray()}>
+              <torusGeometry args={[0.29, 0.025, 14, 72]} />
+              <meshBasicMaterial color={regionColor} transparent opacity={0.82} depthWrite={false} />
+            </mesh>
+          </>
+        )}
         {state.viewMode === "body" && (
           <Html position={RIGHT_KNEE_ANCHOR.toArray()} center distanceFactor={7.5}>
             <button
@@ -908,24 +924,110 @@ function Scene({
   state,
   anatomyState,
   reducedMotion,
+  bodyAssetReady,
   onFocusKnee,
   onBodyReady,
+  onSceneCommit,
 }: {
   state: VisualizationSnapshot;
   anatomyState: AnatomyState;
   reducedMotion: boolean;
+  bodyAssetReady: boolean;
   onFocusKnee: () => void;
   onBodyReady: () => void;
+  onSceneCommit: (commit: VisualizationRenderCommit) => void;
 }) {
   const controls = useRef<CameraControlsImpl | null>(null);
   const userInteracting = useRef(false);
   const resumeIdleTimer = useRef<number | null>(null);
+  const [sceneLayer, setSceneLayer] = useState<SceneLayer>(
+    state.viewMode === "body" ? "body" : "knee",
+  );
+  const [cameraPhase, setCameraPhase] = useState<CameraPhase>(
+    state.viewMode === "body"
+      ? state.target === "body"
+        ? "body-overview"
+        : "body-region"
+      : "knee-detail",
+  );
+  const sceneLayerRef = useRef<SceneLayer>(sceneLayer);
+  const cameraPhaseRef = useRef<CameraPhase>(cameraPhase);
   const lights = useMemo(
     () => ({ key: new THREE.Color("#d8edff"), fill: new THREE.Color("#dfe9f3") }),
     [],
   );
-  const keepKneeMounted =
-    state.viewMode === "knee" || state.visualState === "returning-to-overview";
+
+  useEffect(() => {
+    const timers: number[] = [];
+    const schedule = (callback: () => void, delay: number) => {
+      timers.push(window.setTimeout(callback, delay));
+    };
+    const showLayer = (nextLayer: SceneLayer) => {
+      sceneLayerRef.current = nextLayer;
+      setSceneLayer(nextLayer);
+    };
+    const frameCamera = (nextPhase: CameraPhase) => {
+      cameraPhaseRef.current = nextPhase;
+      setCameraPhase(nextPhase);
+    };
+
+    if (state.viewMode === "body") {
+      if (sceneLayerRef.current !== "body") {
+        // A blank handoff frame guarantees that the two anatomy models never
+        // occupy the scene together, including when reduced motion is enabled.
+        showLayer("handoff");
+        frameCamera(state.target === "body" ? "body-overview" : "body-region");
+        schedule(() => showLayer("body"), reducedMotion ? 32 : 90);
+      } else if (state.visualState === "focusing-region") {
+        // Hold the whole-person framing long enough for the knee pulse to be
+        // noticed before moving the camera toward the region.
+        frameCamera("body-overview");
+        schedule(() => frameCamera("body-region"), reducedMotion ? 0 : 300);
+      } else {
+        frameCamera(state.target === "body" ? "body-overview" : "body-region");
+      }
+    } else if (sceneLayerRef.current !== "knee") {
+      const needsRegionOrientation = cameraPhaseRef.current === "body-overview";
+      const enteringProcedure = state.visualState === "entering-procedure";
+      const highlightHoldMs = reducedMotion
+        ? 0
+        : needsRegionOrientation
+          ? enteringProcedure ? 280 : 140
+          : 0;
+      const zoomHoldMs = reducedMotion ? 0 : enteringProcedure ? 560 : 300;
+      const handoffGapMs = reducedMotion ? 32 : 90;
+
+      if (needsRegionOrientation) {
+        schedule(() => frameCamera("body-region"), highlightHoldMs);
+      }
+      schedule(
+        () => frameCamera("knee-detail"),
+        highlightHoldMs + (reducedMotion ? 0 : 180),
+      );
+      schedule(
+        () => showLayer("handoff"),
+        highlightHoldMs + zoomHoldMs,
+      );
+      schedule(
+        () => showLayer("knee"),
+        highlightHoldMs + zoomHoldMs + handoffGapMs,
+      );
+    } else {
+      frameCamera("knee-detail");
+    }
+
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [reducedMotion, state.revision, state.target, state.viewMode, state.visualState]);
+
+  useEffect(() => {
+    onSceneCommit({
+      layer: sceneLayer,
+      phase: cameraPhase,
+      revision: state.revision,
+      visualState: state.visualState,
+      bodyAssetReady,
+    });
+  }, [bodyAssetReady, cameraPhase, onSceneCommit, sceneLayer, state.revision, state.visualState]);
 
   useEffect(
     () => () => {
@@ -940,23 +1042,25 @@ function Scene({
       <directionalLight position={[4, 7, 6]} intensity={3.4} color={lights.key} />
       <directionalLight position={[-5, 2, 4]} intensity={2.5} color={lights.fill} />
       <pointLight position={[0, -2, 5]} intensity={1.4} color="#42a8ff" />
-      <Suspense fallback={<BodyLoadingModel />}>
-        <FullBodyModel
-          state={state}
-          reducedMotion={reducedMotion}
-          onFocusKnee={onFocusKnee}
-          onReady={onBodyReady}
-        />
-      </Suspense>
+      {sceneLayer === "body" && (
+        <Suspense fallback={<BodyLoadingModel />}>
+          <FullBodyModel
+            state={state}
+            reducedMotion={reducedMotion}
+            onFocusKnee={onFocusKnee}
+            onReady={onBodyReady}
+          />
+        </Suspense>
+      )}
 
-      {keepKneeMounted && (
+      {sceneLayer === "knee" && (
         <group position={RIGHT_KNEE_ANCHOR.toArray()} scale={0.42}>
           <Suspense fallback={<KneeModel state={anatomyState} reducedMotion={reducedMotion} />}>
             <DetailedKneeModel
               state={anatomyState}
               visualization={state}
               reducedMotion={reducedMotion}
-              visible={state.viewMode === "knee"}
+              visible
             />
           </Suspense>
         </group>
@@ -985,6 +1089,7 @@ function Scene({
       <CameraDirector
         controls={controls}
         state={state}
+        phase={cameraPhase}
         reducedMotion={reducedMotion}
         userInteracting={userInteracting}
       />
@@ -1000,10 +1105,19 @@ export function KneeViewer({
 }: KneeViewerProps) {
   const [state, setState] = useState<VisualizationSnapshot>(initialVisualizationSnapshot);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [bodyAssetReady, setBodyAssetReady] = useState(false);
   const stateRef = useRef(state);
   const reducedMotionRef = useRef(false);
   const mountedRef = useRef(true);
   const commandQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const renderedSceneCommitRef = useRef<VisualizationRenderCommit | null>(null);
+  const sceneCommitWaitersRef = useRef<
+    Array<{
+      expected: VisualizationRenderCommit;
+      resolve: (settled: boolean) => void;
+      timeout: number;
+    }>
+  >([]);
   const sectionRef = useRef<HTMLElement>(null);
   const processedCommands = useRef(new Set<string>());
   const processedCommandOrder = useRef<string[]>([]);
@@ -1017,6 +1131,49 @@ export function KneeViewer({
     if (mountedRef.current) setState(nextState);
   }, []);
 
+  const reportSceneCommit = useCallback((commit: VisualizationRenderCommit) => {
+    renderedSceneCommitRef.current = commit;
+    const settled = sceneCommitWaitersRef.current.filter(
+      (waiter) => isVisualizationRenderCommitSatisfied(commit, waiter.expected),
+    );
+    if (!settled.length) return;
+    sceneCommitWaitersRef.current = sceneCommitWaitersRef.current.filter(
+      (waiter) => !isVisualizationRenderCommitSatisfied(commit, waiter.expected),
+    );
+    settled.forEach((waiter) => {
+      window.clearTimeout(waiter.timeout);
+      waiter.resolve(true);
+    });
+  }, []);
+
+  const waitForSceneCommit = useCallback(
+    (expected: VisualizationRenderCommit, timeoutMs = 2_500): Promise<boolean> => {
+      if (
+        isVisualizationRenderCommitSatisfied(
+          renderedSceneCommitRef.current,
+          expected,
+        )
+      ) {
+        return Promise.resolve(true);
+      }
+      return new Promise((resolve) => {
+        const waiter = {
+          expected,
+          resolve,
+          timeout: 0,
+        };
+        waiter.timeout = window.setTimeout(() => {
+          sceneCommitWaitersRef.current = sceneCommitWaitersRef.current.filter(
+            (candidate) => candidate !== waiter,
+          );
+          resolve(false);
+        }, timeoutMs);
+        sceneCommitWaitersRef.current.push(waiter);
+      });
+    },
+    [],
+  );
+
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
@@ -1025,6 +1182,11 @@ export function KneeViewer({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      sceneCommitWaitersRef.current.forEach((waiter) => {
+        window.clearTimeout(waiter.timeout);
+        waiter.resolve(false);
+      });
+      sceneCommitWaitersRef.current = [];
     };
   }, []);
 
@@ -1061,6 +1223,20 @@ export function KneeViewer({
         const settledState = settleVisualizationState(stateRef.current);
         if (settledState !== stateRef.current) publishState(settledState);
 
+        const expectedCommit = getExpectedVisualizationRenderCommit(
+          stateRef.current,
+        );
+        const rendererSettled = await waitForSceneCommit(expectedCommit);
+        if (!rendererSettled) {
+          return {
+            status: "rejected" as const,
+            code: "TRANSITION_TIMEOUT" as const,
+            message: "The anatomy scene did not finish its visual handoff.",
+            stateRevision: stateRef.current.revision,
+            snapshot: stateRef.current,
+          };
+        }
+
         return {
           status: "completed" as const,
           message: execution.message,
@@ -1074,7 +1250,7 @@ export function KneeViewer({
       );
       return queued;
     },
-    [publishState],
+    [publishState, waitForSceneCommit],
   );
 
   const executeLegacy = useCallback(
@@ -1114,6 +1290,7 @@ export function KneeViewer({
   }, [executeVisualization]);
 
   const markBodyReady = useCallback(() => {
+    setBodyAssetReady(true);
     if (stateRef.current.visualState !== "loading") return;
     publishState(settleVisualizationState(stateRef.current));
   }, [publishState]);
@@ -1294,8 +1471,10 @@ export function KneeViewer({
               state={state}
               anatomyState={anatomyState}
               reducedMotion={reducedMotion}
+              bodyAssetReady={bodyAssetReady}
               onFocusKnee={() => void focusAndEnterKnee()}
               onBodyReady={markBodyReady}
+              onSceneCommit={reportSceneCommit}
             />
           </Canvas>
         </ViewerErrorBoundary>

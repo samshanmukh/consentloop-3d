@@ -16,6 +16,9 @@ import {
 import {
   createConsentVoiceSessionConfig,
   createDeepgramTokenFactory,
+  createVoiceNarrationBarrier,
+  getVoiceFunctionProtocolErrors,
+  isVisualizationVoiceToolCall,
   normalizeVoiceToolCall,
   serializeVoiceToolResult,
   type VoiceToolCall,
@@ -130,6 +133,8 @@ export function useConsentVoiceAgent({
   const startingRef = useRef(false);
   const transcriptCounterRef = useRef(0);
   const audioDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toolExecutionQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const voiceNarrationBarrierRef = useRef(createVoiceNarrationBarrier());
   const callbacksRef = useRef({ onToolCall, onTranscript, onStatusChange });
 
   useEffect(() => {
@@ -158,6 +163,7 @@ export function useConsentVoiceAgent({
     microphoneRef.current = null;
     sessionRef.current = null;
     playerRef.current = null;
+    voiceNarrationBarrierRef.current.transition("reset");
 
     microphone?.stop();
     session?.disconnect();
@@ -201,7 +207,11 @@ export function useConsentVoiceAgent({
   );
 
   const executeFunctionCall = useCallback(
-    async (session: AgentSession, wireCall: FunctionCallItem) => {
+    async (
+      session: AgentSession,
+      wireCall: FunctionCallItem,
+      protocolError?: string,
+    ) => {
       if (!wireCall.client_side) return;
 
       const normalized = normalizeVoiceToolCall(wireCall);
@@ -215,12 +225,49 @@ export function useConsentVoiceAgent({
         return;
       }
 
+      if (protocolError) {
+        session.sendFunctionCallResponse(
+          wireCall.id,
+          wireCall.name,
+          serializeVoiceToolResult({ ok: false, error: protocolError }),
+        );
+        if (mountedRef.current) setError(`Voice command rejected: ${protocolError}`);
+        return;
+      }
+
+      const visualizationCall = isVisualizationVoiceToolCall(normalized.call);
+      if (visualizationCall) {
+        await voiceNarrationBarrierRef.current.waitUntilReady();
+        if (sessionRef.current !== session) return;
+      }
+
       let result: VoiceToolExecutionResult;
       try {
         const handlerResult = await callbacksRef.current.onToolCall(normalized.call);
-        result = handlerResult ?? defaultToolSuccess(normalized.call);
+        if (visualizationCall) {
+          result = handlerResult?.ok && handlerResult.settled?.transitionCompleted
+            ? handlerResult
+            : handlerResult && !handlerResult.ok
+              ? handlerResult
+              : {
+                  ok: false,
+                  error:
+                    "The visualization did not confirm that its transition settled, so narration was paused.",
+                };
+        } else {
+          result = handlerResult ?? defaultToolSuccess(normalized.call);
+        }
       } catch (toolError) {
         result = { ok: false, error: friendlyError(toolError) };
+      }
+
+      if (sessionRef.current !== session) return;
+
+      if (visualizationCall && result.ok) {
+        // A timer from speech that preceded this visual must not release the
+        // barrier for the narration that Deepgram will speak in response.
+        clearAudioDoneTimer();
+        voiceNarrationBarrierRef.current.transition("visual-settled");
       }
 
       session.sendFunctionCallResponse(
@@ -233,7 +280,7 @@ export function useConsentVoiceAgent({
         setError(`The requested interface action failed: ${result.error}`);
       }
     },
-    [],
+    [clearAudioDoneTimer],
   );
 
   const start = useCallback(async (
@@ -254,6 +301,7 @@ export function useConsentVoiceAgent({
       setMicrophoneMuted(false);
       setOutputMuted(false);
     }
+    voiceNarrationBarrierRef.current.transition("reset");
     updateStatus("connecting");
 
     const session = new AgentSession(
@@ -301,6 +349,7 @@ export function useConsentVoiceAgent({
     });
     session.on("user-started-speaking", () => {
       clearAudioDoneTimer();
+      voiceNarrationBarrierRef.current.transition("user-interrupted");
       player.interrupt();
       updateStatus("listening");
     });
@@ -312,15 +361,20 @@ export function useConsentVoiceAgent({
       const delayMs = Math.max(0, Math.ceil(player.getRemainingPlaybackTime() * 1_000));
       audioDoneTimerRef.current = setTimeout(() => {
         audioDoneTimerRef.current = null;
+        voiceNarrationBarrierRef.current.transition("audio-finished");
         updateStatus("listening");
       }, delayMs);
     });
     session.on("function-call-request", (message) => {
-      void (async () => {
-        for (const functionCall of message.functions) {
-          await executeFunctionCall(session, functionCall);
-        }
-      })();
+      const protocolErrors = getVoiceFunctionProtocolErrors(message.functions);
+      message.functions.forEach((functionCall, index) => {
+        const protocolError = protocolErrors[index];
+        const run = async () => {
+          if (sessionRef.current !== session) return;
+          await executeFunctionCall(session, functionCall, protocolError);
+        };
+        toolExecutionQueueRef.current = toolExecutionQueueRef.current.then(run, run);
+      });
     });
     session.on("reconnecting", () => updateStatus("reconnecting"));
     session.on("warning", (message) => {
@@ -411,6 +465,7 @@ export function useConsentVoiceAgent({
     const session = sessionRef.current;
     if (!normalized || !session || session.state !== "connected") return false;
     clearAudioDoneTimer();
+    voiceNarrationBarrierRef.current.transition("user-interrupted");
     playerRef.current?.interrupt();
     session.injectUserMessage(normalized);
     if (mountedRef.current) setError(null);

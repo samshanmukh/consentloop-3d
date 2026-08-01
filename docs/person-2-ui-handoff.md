@@ -112,7 +112,9 @@ console.log(result?.status, result?.snapshot.visualState);
 ```
 
 Calls are serialized, runtime validated, and resolve after the visual
-transition settles. The controller snapshot is the only source of truth for
+transition settles. The right-knee path is enforced as whole body, focused
+knee, exclusive body-to-detail handoff, then one approved procedure step at a
+time. The body and detailed knee are never rendered together. The controller snapshot is the only source of truth for
 body view, selected region, procedure step, mode, highlight, comparison state,
 camera controls, completion, and revision. Capabilities are published at
 `window.consentLoopVisualization.capabilities`.

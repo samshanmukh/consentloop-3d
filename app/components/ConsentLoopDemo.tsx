@@ -52,10 +52,14 @@ import type {
   AnatomyState,
 } from "../lib/anatomy-commands";
 import {
+  getNextApprovedVoiceAction,
+  getVoiceNarrationCue,
+  getVoiceVisualizationSequenceError,
   isVisualizationVoiceToolCall,
   voiceToolToVisualizationCommand,
   type VoiceToolCall,
   type VoiceToolExecutionResult,
+  type VisualizationVoiceToolCall,
 } from "../lib/voice-agent";
 import {
   useConsentVoiceAgent,
@@ -488,17 +492,95 @@ function AnatomyView({
   onVoicePrompt: (prompt: string) => void;
 }) {
   const isBodyOverview = visualizationState?.viewMode !== "knee";
+  const rightKneeFocused =
+    isBodyOverview && visualizationState?.target === "knee";
+  const visualTransitionActive =
+    visualizationState?.visualState === "loading" ||
+    visualizationState?.visualState === "focusing-region" ||
+    visualizationState?.visualState === "entering-procedure" ||
+    visualizationState?.visualState === "returning-to-overview";
+  const currentStepIndex = kneeArthroscopyProcedure.steps.findIndex(
+    (step) => step.id === visualizationState?.stepId,
+  );
+  const nextProcedureStep =
+    currentStepIndex >= 0
+      ? kneeArthroscopyProcedure.steps[currentStepIndex + 1]
+      : undefined;
+  const primaryCommand: VisualizationCommand = isBodyOverview
+    ? rightKneeFocused
+      ? { type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" }
+      : { type: "FOCUS_BODY_REGION", regionId: "right-knee" }
+    : nextProcedureStep
+      ? {
+          type: "PLAY_PROCEDURE_STEP",
+          procedureId: "knee-arthroscopy",
+          stepId: nextProcedureStep.id,
+        }
+      : { type: "RETURN_TO_OVERVIEW" };
+  const primaryLabel = isBodyOverview
+    ? rightKneeFocused
+      ? "Zoom into the highlighted knee"
+      : "Highlight the right knee"
+    : nextProcedureStep
+      ? nextProcedureStep.id === "completion" &&
+        workflow.concepts["tissue-treated"].status !== "understood"
+        ? "Complete teach-back before finishing"
+        : `Next: ${nextProcedureStep.title}`
+      : "Return to whole-body view";
+  const completionBlocked =
+    nextProcedureStep?.id === "completion" &&
+    workflow.concepts["tissue-treated"].status !== "understood";
   const hotspotCommands: Array<{
     label: string;
     target: AnatomyState["target"];
     command: VisualizationCommand;
-  }> = [
-    { label: "Whole body", target: "body", command: { type: "SHOW_BODY_OVERVIEW", view: "three-quarter" } },
-    { label: "Right knee", target: "knee", command: { type: "FOCUS_BODY_REGION", regionId: "right-knee" } },
-    { label: "Damaged meniscus", target: "tear", command: { type: "PLAY_PROCEDURE_STEP", procedureId: "knee-arthroscopy", stepId: "damaged-structure" } },
-    { label: "Cruciate ligaments", target: "ligaments", command: { type: "HIGHLIGHT_STRUCTURE", structureId: "cruciate-ligaments", color: "blue" } },
-    { label: "Camera portals", target: "portals", command: { type: "PLAY_PROCEDURE_STEP", procedureId: "knee-arthroscopy", stepId: "access-point" } },
-  ];
+  }> = isBodyOverview
+    ? [
+        {
+          label: "Whole body",
+          target: "body",
+          command: { type: "SHOW_BODY_OVERVIEW", view: "three-quarter" },
+        },
+        {
+          label: "Right knee",
+          target: "knee",
+          command: { type: "FOCUS_BODY_REGION", regionId: "right-knee" },
+        },
+      ]
+    : [
+        {
+          label: "Whole body",
+          target: "body",
+          command: { type: "RETURN_TO_OVERVIEW" },
+        },
+        {
+          label: "Damaged meniscus",
+          target: "tear",
+          command: {
+            type: "PLAY_PROCEDURE_STEP",
+            procedureId: "knee-arthroscopy",
+            stepId: "damaged-structure",
+          },
+        },
+        {
+          label: "Cruciate ligaments",
+          target: "ligaments",
+          command: {
+            type: "HIGHLIGHT_STRUCTURE",
+            structureId: "cruciate-ligaments",
+            color: "blue",
+          },
+        },
+        {
+          label: "Camera portals",
+          target: "portals",
+          command: {
+            type: "PLAY_PROCEDURE_STEP",
+            procedureId: "knee-arthroscopy",
+            stepId: "access-point",
+          },
+        },
+      ];
 
   return (
     <div className="anatomy-layout view-enter">
@@ -515,6 +597,7 @@ function AnatomyView({
                 key={target}
                 className={anatomyState?.target === target ? "active" : ""}
                 onClick={() => onVisualizationCommand(command)}
+                disabled={visualTransitionActive}
               >
                 <span /><strong>{label}</strong><ArrowRight size={15} />
               </button>
@@ -554,13 +637,10 @@ function AnatomyView({
           </div>
           <button
             className="text-button"
-            onClick={() => onVisualizationCommand(
-              isBodyOverview
-                ? { type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" }
-                : { type: "PLAY_PROCEDURE_STEP", procedureId: "knee-arthroscopy", stepId: "access-point" },
-            )}
+            onClick={() => onVisualizationCommand(primaryCommand)}
+            disabled={visualTransitionActive || completionBlocked}
           >
-            {isBodyOverview ? "Travel into the right knee" : "Next: camera path"} <ArrowRight size={16} />
+            {primaryLabel} <ArrowRight size={16} />
           </button>
         </section>
         <VoiceGuidePanel onOpen={onVoiceOpen} onPrompt={onVoicePrompt} />
@@ -802,6 +882,40 @@ function TeachBackView({
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<"idle" | "misconception" | "corrected" | "uncertain">("idle");
 
+  const playTeachBackVisualization = async (
+    stepId: "misconception-comparison" | "completion",
+  ) => {
+    const bridge =
+      window.consentLoopVisualization ??
+      await waitForVisualizationController();
+    const snapshot = bridge.getSnapshot();
+
+    if (snapshot.viewMode !== "knee") {
+      const alreadyFocused =
+        snapshot.target === "knee" && snapshot.stepId === "affected-knee";
+      if (!alreadyFocused) {
+        const focused = await bridge.execute({
+          type: "FOCUS_BODY_REGION",
+          regionId: "right-knee",
+        });
+        if (focused.status !== "completed") return;
+      }
+
+      const entered = await bridge.execute({
+        type: "ENTER_PROCEDURE",
+        procedureId: "knee-arthroscopy",
+      });
+      if (entered.status !== "completed") return;
+    }
+
+    const result = await bridge.execute({
+      type: "PLAY_PROCEDURE_STEP",
+      procedureId: "knee-arthroscopy",
+      stepId,
+    });
+    if (result.status === "completed") onVisualizationState(result.snapshot);
+  };
+
   const submitAnswer = async () => {
     const normalized = answer.toLowerCase();
     const identifiesMeniscus = normalized.includes("meniscus") || normalized.includes("torn tissue");
@@ -809,37 +923,25 @@ function TeachBackView({
     setBusy(true);
     if (identifiesMeniscus) {
       setFeedback("corrected");
-      await Promise.all([
-        onResult({
-          conceptId: "tissue-treated",
-          status: "understood",
-          evidence: answer,
-          clarification: "Compared the whole joint with the smaller treated meniscus area.",
-        }),
-        window.consentLoopVisualization?.execute({
-          type: "PLAY_PROCEDURE_STEP",
-          procedureId: "knee-arthroscopy",
-          stepId: "completion",
-        }).then((result) => onVisualizationState(result.snapshot)),
-      ]);
+      await onResult({
+        conceptId: "tissue-treated",
+        status: "understood",
+        evidence: answer,
+        clarification: "Compared the whole joint with the smaller treated meniscus area.",
+      });
+      await playTeachBackVisualization("completion");
       setBusy(false);
       return;
     }
     if (describesWholeReplacement) {
       setFeedback("misconception");
-      await Promise.all([
-        onResult({
-          conceptId: "tissue-treated",
-          status: "contradicted",
-          evidence: answer,
-          misconception: "Patient described the plan as a whole-knee replacement.",
-        }),
-        window.consentLoopVisualization?.execute({
-          type: "PLAY_PROCEDURE_STEP",
-          procedureId: "knee-arthroscopy",
-          stepId: "misconception-comparison",
-        }).then((result) => onVisualizationState(result.snapshot)),
-      ]);
+      await onResult({
+        conceptId: "tissue-treated",
+        status: "contradicted",
+        evidence: answer,
+        misconception: "Patient described the plan as a whole-knee replacement.",
+      });
+      await playTeachBackVisualization("misconception-comparison");
       setBusy(false);
       return;
     }
@@ -1144,6 +1246,7 @@ export function ConsentLoopDemo() {
 
   const executeVisualization = async (
     command: VisualizationCommand,
+    voiceCall?: VisualizationVoiceToolCall,
   ): Promise<VoiceToolExecutionResult> => {
     if (activeViewRef.current !== "anatomy") {
       navigate("anatomy");
@@ -1164,9 +1267,29 @@ export function ConsentLoopDemo() {
     visualizationStateRef.current = result.snapshot;
     setVisualizationState(result.snapshot);
     setAnnouncement("Voice guide updated the interactive anatomy");
+    const narration = voiceCall ? getVoiceNarrationCue(voiceCall) : undefined;
+    const nextApprovedAction = voiceCall
+      ? getNextApprovedVoiceAction(voiceCall)
+      : undefined;
     return {
       ok: true,
-      message: `${result.message} Visual state: ${result.snapshot.visualState}; step: ${result.snapshot.stepId ?? "none"}.`,
+      message: `${result.message} The visual transition has finished.`,
+      settled: {
+        transitionCompleted: true,
+        stateRevision: result.stateRevision,
+        visualState: result.snapshot.visualState,
+        viewMode: result.snapshot.viewMode,
+        activeRegionId: result.snapshot.activeRegionId,
+        procedureId: result.snapshot.procedureId,
+        stepId: result.snapshot.stepId,
+        stage: result.snapshot.stage,
+      },
+      ...(narration ? { narration } : {}),
+      ...(nextApprovedAction ? { nextApprovedAction } : {}),
+      ...(voiceCall?.name === "play_procedure_step" &&
+      voiceCall.arguments.stepId === "patient-teachback"
+        ? { waitForPatientResponse: true as const }
+        : {}),
     };
   };
 
@@ -1193,7 +1316,12 @@ export function ConsentLoopDemo() {
     call: VoiceToolCall,
   ): Promise<VoiceToolExecutionResult> => {
     if (isVisualizationVoiceToolCall(call)) {
-      return executeVisualization(voiceToolToVisualizationCommand(call));
+      const sequenceError = getVoiceVisualizationSequenceError(
+        call,
+        visualizationStateRef.current,
+      );
+      if (sequenceError) return { ok: false, error: sequenceError };
+      return executeVisualization(voiceToolToVisualizationCommand(call), call);
     }
 
     switch (call.name) {

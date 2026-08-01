@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   executeVisualizationCommand,
   executeVisualizationControl,
+  getExpectedVisualizationRenderCommit,
   initialVisualizationSnapshot,
+  isVisualizationRenderCommitSatisfied,
   settleVisualizationState,
   validateVisualizationCommand,
 } from "../app/lib/visualization-controller";
@@ -78,12 +80,165 @@ test("overview focuses the configured knee then enters the preserved procedure",
   assert.equal(entered.state.visualState, "entering-procedure");
   assert.equal(entered.state.viewMode, "knee");
   assert.equal(entered.state.stepId, "normal-anatomy");
+  assert.ok(entered.state.zoom > focused.state.zoom);
   assert.equal(settleVisualizationState(entered.state).visualState, "procedure");
+});
+
+test("renderer acknowledgement requires the focused revision and camera phase", () => {
+  const focused = executeVisualizationCommand(initialVisualizationSnapshot, {
+    type: "FOCUS_BODY_REGION",
+    regionId: "right-knee",
+  });
+  assert.equal(focused.ok, true);
+  if (!focused.ok) return;
+
+  const settledFocus = settleVisualizationState(focused.state);
+  const expectedFocus = getExpectedVisualizationRenderCommit(settledFocus);
+  assert.deepEqual(expectedFocus, {
+    layer: "body",
+    phase: "body-region",
+    revision: 1,
+    visualState: "overview",
+    bodyAssetReady: true,
+  });
+  assert.equal(
+    isVisualizationRenderCommitSatisfied(
+      {
+        layer: "body",
+        phase: "body-region",
+        revision: 0,
+        visualState: "overview",
+        bodyAssetReady: true,
+      },
+      expectedFocus,
+    ),
+    false,
+    "a previously mounted body layer must not acknowledge a new focus command",
+  );
+  assert.equal(
+    isVisualizationRenderCommitSatisfied(
+      {
+        layer: "body",
+        phase: "body-overview",
+        revision: 1,
+        visualState: "overview",
+        bodyAssetReady: true,
+      },
+      expectedFocus,
+    ),
+    false,
+    "focus must commit the knee camera phase before enter can be queued",
+  );
+  assert.equal(
+    isVisualizationRenderCommitSatisfied(
+      {
+        layer: "body",
+        phase: "body-region",
+        revision: 1,
+        visualState: "focusing-region",
+        bodyAssetReady: true,
+      },
+      expectedFocus,
+    ),
+    false,
+    "the transient focus render must not release a reduced-motion command batch",
+  );
+  assert.equal(
+    isVisualizationRenderCommitSatisfied(expectedFocus, expectedFocus),
+    true,
+  );
+});
+
+test("body renderer acknowledgement waits for delayed GLB readiness", () => {
+  const expected = getExpectedVisualizationRenderCommit({
+    ...initialVisualizationSnapshot,
+    visualState: "overview",
+    target: "knee",
+    stepId: "affected-knee",
+    revision: 7,
+  });
+  const fallbackCommit = {
+    ...expected,
+    bodyAssetReady: false,
+  };
+
+  assert.equal(
+    isVisualizationRenderCommitSatisfied(fallbackCommit, expected),
+    false,
+    "the Suspense body fallback must not release the pending command",
+  );
+  assert.equal(
+    isVisualizationRenderCommitSatisfied(
+      { ...fallbackCommit, bodyAssetReady: true },
+      expected,
+    ),
+    true,
+    "the same revision becomes eligible when FullBodyModel reports ready",
+  );
+});
+
+test("renderer acknowledgement distinguishes consecutive commits on the knee layer", () => {
+  const focused = executeVisualizationCommand(initialVisualizationSnapshot, {
+    type: "FOCUS_BODY_REGION",
+    regionId: "right-knee",
+  });
+  assert.equal(focused.ok, true);
+  if (!focused.ok) return;
+  const entered = executeVisualizationCommand(settleVisualizationState(focused.state), {
+    type: "ENTER_PROCEDURE",
+    procedureId: "knee-arthroscopy",
+  });
+  assert.equal(entered.ok, true);
+  if (!entered.ok) return;
+
+  const enteredState = settleVisualizationState(entered.state);
+  const enteredCommit = getExpectedVisualizationRenderCommit(enteredState);
+  const nextStep = executeVisualizationCommand(enteredState, {
+    type: "PLAY_PROCEDURE_STEP",
+    procedureId: "knee-arthroscopy",
+    stepId: "damaged-structure",
+  });
+  assert.equal(nextStep.ok, true);
+  if (!nextStep.ok) return;
+  const expectedStepCommit = getExpectedVisualizationRenderCommit(
+    settleVisualizationState(nextStep.state),
+  );
+
+  assert.equal(enteredCommit.layer, "knee");
+  assert.equal(expectedStepCommit.layer, "knee");
+  assert.equal(
+    isVisualizationRenderCommitSatisfied(enteredCommit, expectedStepCommit),
+    false,
+    "the existing knee layer cannot acknowledge the next procedure step",
+  );
+  assert.equal(
+    isVisualizationRenderCommitSatisfied(expectedStepCommit, expectedStepCommit),
+    true,
+  );
 });
 
 test("every approved procedure step is executable by id", () => {
   let current = initialVisualizationSnapshot;
-  for (const procedureStep of kneeArthroscopyProcedure.steps) {
+  for (const procedureStep of kneeArthroscopyProcedure.steps.slice(0, 2)) {
+    const result = executeVisualizationCommand(current, {
+      type: "PLAY_PROCEDURE_STEP",
+      procedureId: "knee-arthroscopy",
+      stepId: procedureStep.id,
+    });
+    assert.equal(result.ok, true, procedureStep.id);
+    if (!result.ok) return;
+    current = result.state;
+  }
+
+  const entered = executeVisualizationCommand(current, {
+    type: "ENTER_PROCEDURE",
+    procedureId: "knee-arthroscopy",
+  });
+  assert.equal(entered.ok, true);
+  if (!entered.ok) return;
+
+  current = settleVisualizationState(entered.state);
+  for (const procedureStep of kneeArthroscopyProcedure.steps.slice(2)) {
     const result = executeVisualizationCommand(current, {
       type: "PLAY_PROCEDURE_STEP",
       procedureId: "knee-arthroscopy",
@@ -97,12 +252,61 @@ test("every approved procedure step is executable by id", () => {
   }
 });
 
-test("misconception comparison distinguishes whole joint and treated structure", () => {
-  const result = executeVisualizationCommand(initialVisualizationSnapshot, {
+test("procedure detail cannot bypass body orientation and knee focus", () => {
+  const enteredTooEarly = executeVisualizationCommand(initialVisualizationSnapshot, {
+    type: "ENTER_PROCEDURE",
+    procedureId: "knee-arthroscopy",
+  });
+  assert.equal(enteredTooEarly.ok, false);
+  if (enteredTooEarly.ok) return;
+  assert.equal(enteredTooEarly.code, "INVALID_SEQUENCE");
+
+  const playedTooEarly = executeVisualizationCommand(initialVisualizationSnapshot, {
     type: "PLAY_PROCEDURE_STEP",
     procedureId: "knee-arthroscopy",
-    stepId: "misconception-comparison",
+    stepId: "damaged-structure",
   });
+  assert.equal(playedTooEarly.ok, false);
+  if (playedTooEarly.ok) return;
+  assert.equal(playedTooEarly.code, "INVALID_SEQUENCE");
+
+  const focused = executeVisualizationCommand(initialVisualizationSnapshot, {
+    type: "FOCUS_BODY_REGION",
+    regionId: "right-knee",
+  });
+  assert.equal(focused.ok, true);
+  if (!focused.ok) return;
+  const entering = executeVisualizationCommand(focused.state, {
+    type: "ENTER_PROCEDURE",
+    procedureId: "knee-arthroscopy",
+  });
+  assert.equal(entering.ok, true);
+  if (!entering.ok) return;
+  const playedDuringHandoff = executeVisualizationCommand(entering.state, {
+    type: "PLAY_PROCEDURE_STEP",
+    procedureId: "knee-arthroscopy",
+    stepId: "damaged-structure",
+  });
+  assert.equal(playedDuringHandoff.ok, false);
+  if (playedDuringHandoff.ok) return;
+  assert.equal(playedDuringHandoff.code, "INVALID_SEQUENCE");
+});
+
+test("misconception comparison distinguishes whole joint and treated structure", () => {
+  const result = executeVisualizationCommand(
+    {
+      ...initialVisualizationSnapshot,
+      visualState: "procedure",
+      viewMode: "knee",
+      target: "knee",
+      stepId: "normal-anatomy",
+    },
+    {
+      type: "PLAY_PROCEDURE_STEP",
+      procedureId: "knee-arthroscopy",
+      stepId: "misconception-comparison",
+    },
+  );
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.state.visualState, "misconception-detected");
