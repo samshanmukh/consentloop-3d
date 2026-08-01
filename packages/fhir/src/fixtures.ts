@@ -11,7 +11,7 @@ export function buildPatient(): Patient {
   return {
     resourceType: "Patient",
     meta: { tag: [SEED_TAG] },
-    name: [{ given: ["Jordan"], family: "Alvarez" }],
+    name: [{ given: ["Jordan"], family: "Lee" }],
     gender: "unknown",
     birthDate: "1988-09-02",
     telecom: [{ system: "phone", value: "555-0199", use: "mobile" }],
@@ -30,7 +30,7 @@ export function buildPractitioner(): Practitioner {
   return {
     resourceType: "Practitioner",
     meta: { tag: [SEED_TAG] },
-    name: [{ given: ["Dana"], family: "Whitfield", prefix: ["Dr."] }],
+    name: [{ given: ["Maya"], family: "Chen", prefix: ["Dr."] }],
     qualification: [{ code: { text: "Orthopedic Surgery" } }],
   };
 }
@@ -73,6 +73,7 @@ export function buildServiceRequest(ids: {
     subject: { reference: `Patient/${ids.patientId}` },
     encounter: { reference: `Encounter/${ids.encounterId}` },
     requester: { reference: `Practitioner/${ids.practitionerId}` },
+    bodySite: [{ text: "Right knee" }],
     authoredOn: new Date().toISOString(),
     reasonCode: [{ text: "Symptomatic medial meniscus tear, confirmed on MRI" }],
   };

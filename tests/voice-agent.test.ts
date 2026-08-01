@@ -6,7 +6,9 @@ import {
   consentGuidePrompt,
   createConsentVoiceSessionConfig,
   createDeepgramTokenFactory,
+  isVisualizationVoiceToolCall,
   normalizeVoiceToolCall,
+  voiceToolToVisualizationCommand,
   voiceToolDefinitions,
   voiceToolNames,
 } from "../app/lib/voice-agent";
@@ -35,25 +37,81 @@ test("agent configuration is grounded and exposes client-side tools only", () =>
   assert.match(consentGuidePrompt, /Do not diagnose/);
   assert.match(consentGuidePrompt, /preference is not consent/i);
   assert.match(consentGuidePrompt, /Present every available option with equal weight/);
+  assert.match(consentGuidePrompt, /educational illustration/i);
+  assert.match(consentGuidePrompt, /WHOLE-KNEE MISCONCEPTION SEQUENCE/);
+  assert.match(
+    consentGuidePrompt,
+    /misconception-comparison[\s\S]*patient-teachback/,
+  );
+  assert.match(consentGuidePrompt, /cannot update a clinical record/i);
   assert.equal(consentGuideAgentConfig.listen.provider.model, "flux-general-en");
   assert.equal(consentGuideAgentConfig.speak.provider.model, "aura-2-thalia-en");
 });
 
-test("tool calls normalize into a validated UI command union", () => {
+function visualizationCommand(
+  name: string,
+  args: Record<string, unknown>,
+) {
+  const normalized = normalizeVoiceToolCall(wireCall(name, args));
+  if (!normalized.ok) {
+    assert.fail(`Expected ${name} to normalize: ${normalized.error}`);
+  }
+  if (!isVisualizationVoiceToolCall(normalized.call)) {
+    assert.fail(`Expected ${name} to be a visualization tool`);
+  }
+  return voiceToolToVisualizationCommand(normalized.call);
+}
+
+test("all seven visual tool calls map to exact high-level commands", () => {
   assert.deepEqual(
-    normalizeVoiceToolCall(
-      wireCall("focus_anatomy", { target: "tear", camera: "zoom_in" }),
-    ),
+    visualizationCommand("show_body_overview", { view: "back" }),
+    { type: "SHOW_BODY_OVERVIEW", view: "back" },
+  );
+  assert.deepEqual(
+    visualizationCommand("show_body_overview", {}),
+    { type: "SHOW_BODY_OVERVIEW" },
+  );
+  assert.deepEqual(
+    visualizationCommand("focus_body_region", { regionId: "right-knee" }),
+    { type: "FOCUS_BODY_REGION", regionId: "right-knee" },
+  );
+  assert.deepEqual(
+    visualizationCommand("enter_procedure", { procedureId: "knee-arthroscopy" }),
+    { type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" },
+  );
+  assert.deepEqual(
+    visualizationCommand("play_procedure_step", {
+      procedureId: "knee-arthroscopy",
+      stepId: "misconception-comparison",
+    }),
     {
-      ok: true,
-      call: {
-        id: "call-1",
-        name: "focus_anatomy",
-        arguments: { target: "tear", camera: "zoom_in" },
-      },
+      type: "PLAY_PROCEDURE_STEP",
+      procedureId: "knee-arthroscopy",
+      stepId: "misconception-comparison",
     },
   );
+  assert.deepEqual(
+    visualizationCommand("highlight_structure", {
+      structureId: "treated-meniscus",
+      color: "orange",
+    }),
+    {
+      type: "HIGHLIGHT_STRUCTURE",
+      structureId: "treated-meniscus",
+      color: "orange",
+    },
+  );
+  assert.deepEqual(
+    visualizationCommand("set_visual_mode", { mode: "isolated" }),
+    { type: "SET_VISUAL_MODE", mode: "isolated" },
+  );
+  assert.deepEqual(
+    visualizationCommand("return_to_overview", {}),
+    { type: "RETURN_TO_OVERVIEW" },
+  );
+});
 
+test("nonvisual tool calls retain strict normalization", () => {
   assert.deepEqual(
     normalizeVoiceToolCall(
       wireCall("open_consent_section", { section: "costs" }),
@@ -94,13 +152,70 @@ test("tool calls normalize into a validated UI command union", () => {
 test("tool calls reject malformed, ungrounded, or unconfirmed actions", () => {
   assert.equal(
     normalizeVoiceToolCall(
-      wireCall("focus_anatomy", {}, { raw: "not json" }),
+      wireCall("show_body_overview", {}, { raw: "not json" }),
     ).ok,
     false,
   );
   assert.equal(
     normalizeVoiceToolCall(
-      wireCall("focus_anatomy", { target: "brain" }),
+      wireCall("show_body_overview", { view: "inside" }),
+    ).ok,
+    false,
+  );
+  assert.equal(
+    normalizeVoiceToolCall(
+      wireCall("focus_body_region", { regionId: "brain" }),
+    ).ok,
+    false,
+  );
+  assert.equal(
+    normalizeVoiceToolCall(
+      wireCall("enter_procedure", { procedureId: "brain-surgery" }),
+    ).ok,
+    false,
+  );
+  assert.equal(
+    normalizeVoiceToolCall(
+      wireCall("play_procedure_step", {
+        procedureId: "knee-arthroscopy",
+        stepId: "invented-step",
+      }),
+    ).ok,
+    false,
+  );
+  assert.equal(
+    normalizeVoiceToolCall(
+      wireCall("highlight_structure", {
+        structureId: "unknown-structure",
+        color: "orange",
+      }),
+    ).ok,
+    false,
+  );
+  assert.equal(
+    normalizeVoiceToolCall(
+      wireCall("highlight_structure", {
+        structureId: "whole-knee",
+        color: "purple",
+      }),
+    ).ok,
+    false,
+  );
+  assert.equal(
+    normalizeVoiceToolCall(
+      wireCall("set_visual_mode", { mode: "wireframe" }),
+    ).ok,
+    false,
+  );
+  assert.equal(
+    normalizeVoiceToolCall(
+      wireCall("return_to_overview", { view: "front" }),
+    ).ok,
+    false,
+  );
+  assert.equal(
+    normalizeVoiceToolCall(
+      wireCall("focus_anatomy", { target: "tear" }),
     ).ok,
     false,
   );

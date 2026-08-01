@@ -1,3 +1,8 @@
+import type {
+  VisualizationControlCommand,
+  VisualizationSnapshot,
+} from "./visualization-controller";
+
 export type AnatomyTarget =
   | "body"
   | "knee"
@@ -42,6 +47,85 @@ export const initialAnatomyState: AnatomyState = {
   rotation: 0,
   zoom: 1,
 };
+
+/**
+ * Compatibility projection for Person 2/3 integrations that still consume the
+ * original knee-viewer state. The visualization controller remains the only
+ * mutable source of truth.
+ */
+export function visualizationSnapshotToAnatomyState(
+  state: VisualizationSnapshot,
+): AnatomyState {
+  return {
+    target: state.target,
+    stage: state.stage,
+    viewMode: state.viewMode,
+    autoRotate: state.autoRotate,
+    rotation: state.rotation,
+    zoom: state.zoom,
+  };
+}
+
+/** Adapts the original UI bridge to the high-level visualization controller. */
+export function anatomyCommandToVisualizationControls(
+  command: AnatomyCommand,
+): VisualizationControlCommand[] {
+  switch (command.type) {
+    case "focus":
+      if (command.target === "body") {
+        return [{ type: "SHOW_BODY_OVERVIEW" }];
+      }
+      if (command.target === "knee") {
+        return [{ type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" }];
+      }
+      return [
+        { type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" },
+        {
+          type: "HIGHLIGHT_STRUCTURE",
+          structureId:
+            command.target === "meniscus"
+              ? "meniscus"
+              : command.target === "tear"
+                ? "meniscus-tear"
+                : command.target === "ligaments"
+                  ? "cruciate-ligaments"
+                  : "camera-portals",
+          color: command.target === "tear" ? "orange" : "blue",
+        },
+      ];
+    case "set-stage":
+      return command.stage === "overview"
+        ? [{ type: "SHOW_BODY_OVERVIEW" }]
+        : [
+            {
+              type: "PLAY_PROCEDURE_STEP",
+              procedureId: "knee-arthroscopy",
+              stepId:
+                command.stage === "tear"
+                  ? "damaged-structure"
+                  : command.stage === "scope"
+                    ? "access-point"
+                    : command.stage === "treatment"
+                      ? "treatment-action"
+                      : "expected-result",
+            },
+          ];
+    case "rotate":
+      return [{ type: "ROTATE_VISUALIZATION", direction: command.direction }];
+    case "zoom":
+      return [
+        {
+          type: "ZOOM_VISUALIZATION",
+          direction: command.direction,
+          ...(command.factor === undefined ? {} : { factor: command.factor }),
+        },
+      ];
+    case "set-auto-rotate":
+      return [{ type: "SET_AUTO_ROTATE", enabled: command.enabled }];
+    case "reset":
+      return [{ type: "RESET_VISUALIZATION" }];
+  }
+}
 
 export function reduceAnatomyCommand(
   state: AnatomyState,

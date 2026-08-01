@@ -16,8 +16,9 @@ const STATUS_OPTIONS: ComprehensionStatus[] = [
 
 /**
  * One comprehension Questionnaire, three concept groups. Each group has a
- * `status` item (Person 3's evaluator writes one of STATUS_OPTIONS here) and
- * an `evidence` item (the patient's own words, for the clinician transcript).
+ * `status` item (Person 3's evaluator writes one of STATUS_OPTIONS here), an
+ * `evidence` item (the patient's own words, for the clinician transcript),
+ * and optional misconception/clarification entries for the correction trail.
  *
  * linkIds are the ComprehensionConceptId values themselves — the
  * assess-teachback bot reads QuestionnaireResponse.item[].linkId directly
@@ -56,6 +57,11 @@ export function buildComprehensionQuestionnaire(): Questionnaire {
         {
           linkId: `${conceptId}.misconception`,
           text: "Misconception, if any",
+          type: "string",
+        },
+        {
+          linkId: `${conceptId}.clarification`,
+          text: "Clarification provided, if any",
           type: "string",
         },
       ],

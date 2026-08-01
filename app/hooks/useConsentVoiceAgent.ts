@@ -88,8 +88,13 @@ function friendlyError(error: unknown): string {
 function defaultToolSuccess(call: VoiceToolCall): VoiceToolExecutionResult {
   const messages: Record<VoiceToolCall["name"], string> = {
     open_consent_section: "The requested consent section is now open.",
-    focus_anatomy: "The requested anatomy and camera view are now visible.",
-    preview_procedure_step: "The requested illustrated procedure step is now visible.",
+    show_body_overview: "The requested whole-body view is now visible.",
+    focus_body_region: "The configured procedure region is now in focus.",
+    enter_procedure: "The detailed procedure visualization is now visible.",
+    play_procedure_step: "The requested approved procedure step is now visible.",
+    highlight_structure: "The requested approved structure is now highlighted.",
+    set_visual_mode: "The requested visualization mode is now active.",
+    return_to_overview: "The visualization returned to the whole-body overview.",
     focus_option: "The requested option is now in focus; no preference was recorded.",
     request_human: "The confirmed handoff request is ready for the patient to review.",
   };

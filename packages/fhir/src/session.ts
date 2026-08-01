@@ -3,6 +3,8 @@ import type {
   ServiceRequest,
   Task,
   Consent,
+  Patient,
+  Questionnaire,
   QuestionnaireResponse,
   Provenance,
 } from "@medplum/fhirtypes";
@@ -14,8 +16,10 @@ import {
   type ConsentSession,
   type ConsentSessionStatus,
   type ConsentEvent,
+  type TeachBackResult,
 } from "@consentloop/shared";
 import { RUN_TAG, TASK_KIND_SYSTEM, CLINICIAN_REVIEW_TASK_CODE } from "./constants";
+import { parseTeachBackResults } from "./teachback";
 
 /**
  * Reads a QuestionnaireResponse's grouped items back into
@@ -179,6 +183,99 @@ export async function getConsentSession(
     procedureCode: serviceRequest.code?.coding?.[0]?.code ?? "",
     status: deriveSessionStatus(concepts, task, consent),
   };
+}
+
+/**
+ * The complete, read-only context required by the patient visualization and
+ * consent-status panel. Keeping this fan-out in the FHIR package prevents the
+ * renderer and voice layer from learning Medplum search/reference details.
+ */
+export interface VisualizationWorkflowContext {
+  session: ConsentSession;
+  patient: Patient;
+  serviceRequest: ServiceRequest;
+  educationTask: Task;
+  consent: Consent;
+  questionnaire: Questionnaire | null;
+  questionnaireResponse: QuestionnaireResponse;
+  clinicianReviewTask?: Task;
+  teachBackResults: TeachBackResult[];
+  affectedBodySite: ServiceRequest["bodySite"];
+  affectedSide: "left" | "right" | "unknown";
+}
+
+export async function getVisualizationWorkflowContext(
+  medplum: MedplumClient,
+  patientId: string
+): Promise<VisualizationWorkflowContext | null> {
+  const session = await getConsentSession(medplum, patientId);
+  if (!session) return null;
+
+  const [patient, serviceRequest, educationTask, consent, questionnaireResponse] =
+    await Promise.all([
+      medplum.readResource("Patient", session.patientId),
+      medplum.readResource("ServiceRequest", session.serviceRequestId),
+      medplum.readResource("Task", session.taskId),
+      medplum.readResource("Consent", session.consentId),
+      medplum.readResource(
+        "QuestionnaireResponse",
+        session.questionnaireResponseId
+      ),
+    ]);
+
+  const [questionnaire, clinicianReviewTask] = await Promise.all([
+    resolveQuestionnaire(medplum, questionnaireResponse.questionnaire),
+    findClinicianTask(medplum, educationTask),
+  ]);
+
+  return {
+    session,
+    patient,
+    serviceRequest,
+    educationTask,
+    consent,
+    questionnaire,
+    questionnaireResponse,
+    ...(clinicianReviewTask ? { clinicianReviewTask } : {}),
+    teachBackResults: parseTeachBackResults(questionnaireResponse),
+    affectedBodySite: serviceRequest.bodySite,
+    affectedSide: deriveAffectedSide(serviceRequest),
+  };
+}
+
+function deriveAffectedSide(
+  serviceRequest: ServiceRequest
+): "left" | "right" | "unknown" {
+  const bodySiteText = (serviceRequest.bodySite ?? [])
+    .flatMap((site) => [
+      site.text,
+      ...(site.coding ?? []).flatMap((coding) => [coding.display, coding.code]),
+    ])
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .toLowerCase();
+
+  if (bodySiteText.includes("right")) return "right";
+  if (bodySiteText.includes("left")) return "left";
+  return "unknown";
+}
+
+async function resolveQuestionnaire(
+  medplum: MedplumClient,
+  canonicalOrReference: string | undefined
+): Promise<Questionnaire | null> {
+  if (!canonicalOrReference) return null;
+
+  if (canonicalOrReference.startsWith("Questionnaire/")) {
+    const [, questionnaireId] = canonicalOrReference.split("/");
+    return medplum.readResource("Questionnaire", questionnaireId);
+  }
+
+  const questionnaires = await medplum.searchResources("Questionnaire", {
+    url: canonicalOrReference,
+    _count: 1,
+  });
+  return questionnaires[0] ?? null;
 }
 
 export async function listComprehensionConcepts(

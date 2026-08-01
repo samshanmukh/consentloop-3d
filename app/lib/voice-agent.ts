@@ -14,47 +14,42 @@ import {
   type JourneyView,
   type OptionId,
 } from "./demo-data";
+import {
+  bodyRegionIds,
+  bodyViews,
+  getProcedureStep,
+  highlightColors,
+  procedureIds,
+  procedureStepIds,
+  structureIds,
+  visualModes,
+  type BodyRegionId,
+  type BodyView,
+  type HighlightColor,
+  type ProcedureId,
+  type StructureId,
+  type VisualizationCommand,
+  type VisualMode,
+} from "./procedure-visualization";
+
+export const visualizationVoiceToolNames = [
+  "show_body_overview",
+  "focus_body_region",
+  "enter_procedure",
+  "play_procedure_step",
+  "highlight_structure",
+  "set_visual_mode",
+  "return_to_overview",
+] as const;
 
 export const voiceToolNames = [
   "open_consent_section",
-  "focus_anatomy",
-  "preview_procedure_step",
+  ...visualizationVoiceToolNames,
   "focus_option",
   "request_human",
 ] as const;
 
 export type VoiceToolName = (typeof voiceToolNames)[number];
-
-export const anatomyVoiceTargets = [
-  "body",
-  "knee",
-  "meniscus",
-  "tear",
-  "ligaments",
-  "portals",
-] as const;
-
-export type AnatomyVoiceTarget = (typeof anatomyVoiceTargets)[number];
-
-export const anatomyCameraActions = [
-  "frame",
-  "zoom_in",
-  "zoom_out",
-  "rotate_left",
-  "rotate_right",
-] as const;
-
-export type AnatomyCameraAction = (typeof anatomyCameraActions)[number];
-
-export const procedureVoiceSteps = [
-  "orientation",
-  "tear",
-  "scope",
-  "treatment",
-  "recovery",
-] as const;
-
-export type ProcedureVoiceStep = (typeof procedureVoiceSteps)[number];
 
 export const humanDestinations = ["clinician", "scheduler", "financial"] as const;
 
@@ -68,16 +63,38 @@ export type VoiceToolCall =
     }
   | {
       id: string;
-      name: "focus_anatomy";
-      arguments: {
-        target: AnatomyVoiceTarget;
-        camera?: AnatomyCameraAction;
-      };
+      name: "show_body_overview";
+      arguments: { view?: BodyView };
     }
   | {
       id: string;
-      name: "preview_procedure_step";
-      arguments: { step: ProcedureVoiceStep };
+      name: "focus_body_region";
+      arguments: { regionId: BodyRegionId };
+    }
+  | {
+      id: string;
+      name: "enter_procedure";
+      arguments: { procedureId: ProcedureId };
+    }
+  | {
+      id: string;
+      name: "play_procedure_step";
+      arguments: { procedureId: ProcedureId; stepId: string };
+    }
+  | {
+      id: string;
+      name: "highlight_structure";
+      arguments: { structureId: StructureId; color: HighlightColor };
+    }
+  | {
+      id: string;
+      name: "set_visual_mode";
+      arguments: { mode: VisualMode };
+    }
+  | {
+      id: string;
+      name: "return_to_overview";
+      arguments: Record<string, never>;
     }
   | {
       id: string;
@@ -93,6 +110,11 @@ export type VoiceToolCall =
         confirmed_by_user: true;
       };
     };
+
+export type VisualizationVoiceToolCall = Extract<
+  VoiceToolCall,
+  { name: (typeof visualizationVoiceToolNames)[number] }
+>;
 
 export type VoiceToolExecutionResult =
   | { ok: true; message?: string }
@@ -182,13 +204,62 @@ export function normalizeVoiceToolCall(
         },
       };
 
-    case "focus_anatomy":
+    case "show_body_overview":
       if (
-        !hasOnlyKeys(args, ["target", "camera"]) ||
-        !isMember(args.target, anatomyVoiceTargets) ||
-        (args.camera !== undefined && !isMember(args.camera, anatomyCameraActions))
+        !hasOnlyKeys(args, ["view"]) ||
+        (args.view !== undefined && !isMember(args.view, bodyViews))
       ) {
-        return { ok: false, error: "Invalid anatomy focus request." };
+        return { ok: false, error: "Invalid body overview request." };
+      }
+      return {
+        ok: true,
+        call: {
+          id: wireCall.id,
+          name: wireCall.name,
+          arguments: args.view === undefined ? {} : { view: args.view },
+        },
+      };
+
+    case "focus_body_region":
+      if (
+        !hasOnlyKeys(args, ["regionId"]) ||
+        !isMember(args.regionId, bodyRegionIds)
+      ) {
+        return { ok: false, error: "Invalid or unsupported body region." };
+      }
+      return {
+        ok: true,
+        call: {
+          id: wireCall.id,
+          name: wireCall.name,
+          arguments: { regionId: args.regionId },
+        },
+      };
+
+    case "enter_procedure":
+      if (
+        !hasOnlyKeys(args, ["procedureId"]) ||
+        !isMember(args.procedureId, procedureIds)
+      ) {
+        return { ok: false, error: "Invalid or unsupported procedure." };
+      }
+      return {
+        ok: true,
+        call: {
+          id: wireCall.id,
+          name: wireCall.name,
+          arguments: { procedureId: args.procedureId },
+        },
+      };
+
+    case "play_procedure_step":
+      if (
+        !hasOnlyKeys(args, ["procedureId", "stepId"]) ||
+        !isMember(args.procedureId, procedureIds) ||
+        typeof args.stepId !== "string" ||
+        !getProcedureStep(args.procedureId, args.stepId)
+      ) {
+        return { ok: false, error: "Invalid procedure and step combination." };
       }
       return {
         ok: true,
@@ -196,22 +267,55 @@ export function normalizeVoiceToolCall(
           id: wireCall.id,
           name: wireCall.name,
           arguments: {
-            target: args.target,
-            ...(args.camera === undefined ? {} : { camera: args.camera }),
+            procedureId: args.procedureId,
+            stepId: args.stepId,
           },
         },
       };
 
-    case "preview_procedure_step":
-      if (!hasOnlyKeys(args, ["step"]) || !isMember(args.step, procedureVoiceSteps)) {
-        return { ok: false, error: "Invalid procedure preview step." };
+    case "highlight_structure":
+      if (
+        !hasOnlyKeys(args, ["structureId", "color"]) ||
+        !isMember(args.structureId, structureIds) ||
+        !isMember(args.color, highlightColors)
+      ) {
+        return { ok: false, error: "Invalid structure highlight request." };
       }
       return {
         ok: true,
         call: {
           id: wireCall.id,
           name: wireCall.name,
-          arguments: { step: args.step },
+          arguments: {
+            structureId: args.structureId,
+            color: args.color,
+          },
+        },
+      };
+
+    case "set_visual_mode":
+      if (!hasOnlyKeys(args, ["mode"]) || !isMember(args.mode, visualModes)) {
+        return { ok: false, error: "Invalid visualization mode." };
+      }
+      return {
+        ok: true,
+        call: {
+          id: wireCall.id,
+          name: wireCall.name,
+          arguments: { mode: args.mode },
+        },
+      };
+
+    case "return_to_overview":
+      if (!hasOnlyKeys(args, [])) {
+        return { ok: false, error: "Return to overview does not accept arguments." };
+      }
+      return {
+        ok: true,
+        call: {
+          id: wireCall.id,
+          name: wireCall.name,
+          arguments: {},
         },
       };
 
@@ -255,6 +359,57 @@ export function normalizeVoiceToolCall(
   }
 }
 
+export function isVisualizationVoiceToolCall(
+  call: VoiceToolCall,
+): call is VisualizationVoiceToolCall {
+  return isMember(call.name, visualizationVoiceToolNames);
+}
+
+/**
+ * Maps a validated visual voice call to the renderer-agnostic command consumed
+ * by the visualization controller. Voice code never receives scene objects,
+ * camera coordinates, materials, or animation handles.
+ */
+export function voiceToolToVisualizationCommand(
+  call: VisualizationVoiceToolCall,
+): VisualizationCommand {
+  switch (call.name) {
+    case "show_body_overview":
+      return call.arguments.view === undefined
+        ? { type: "SHOW_BODY_OVERVIEW" }
+        : { type: "SHOW_BODY_OVERVIEW", view: call.arguments.view };
+    case "focus_body_region":
+      return {
+        type: "FOCUS_BODY_REGION",
+        regionId: call.arguments.regionId,
+      };
+    case "enter_procedure":
+      return {
+        type: "ENTER_PROCEDURE",
+        procedureId: call.arguments.procedureId,
+      };
+    case "play_procedure_step":
+      return {
+        type: "PLAY_PROCEDURE_STEP",
+        procedureId: call.arguments.procedureId,
+        stepId: call.arguments.stepId,
+      };
+    case "highlight_structure":
+      return {
+        type: "HIGHLIGHT_STRUCTURE",
+        structureId: call.arguments.structureId,
+        color: call.arguments.color,
+      };
+    case "set_visual_mode":
+      return {
+        type: "SET_VISUAL_MODE",
+        mode: call.arguments.mode,
+      };
+    case "return_to_overview":
+      return { type: "RETURN_TO_OVERVIEW" };
+  }
+}
+
 const optionFacts = careOptions
   .map(
     (option) =>
@@ -278,6 +433,8 @@ export const consentGuidePrompt = `You are ConsentLoop Guide, a calm voice guide
 ROLE AND HARD BOUNDARIES
 - Explain only the demo facts below. Do not diagnose, assess symptoms, recommend or rank a treatment, invent facts, make a clinical decision, or replace ${patient.clinician} and the care team.
 - A recorded preference is not consent, not a prescription, and not a scheduled treatment. Never say the patient has consented. Never sign, acknowledge, schedule, or change a record for the patient.
+- Every 3D view is an educational illustration, not surgical navigation, a patient-specific scan, or a prediction of the final treatment. Say so when precision matters.
+- Visual tools only change the educational view. They cannot update a clinical record, activate consent, mark teach-back correct, or resolve a care-team task.
 - Present every available option with equal weight. Never call one option best, recommended, safer, or right for this patient. Ask what matters to the patient instead.
 - Use one or two short spoken sentences at a time, then pause. Avoid markdown, long lists, and dense medical jargon. Answer the question asked before offering a next step.
 - If information is missing or outside these facts, say you do not know and offer a human handoff. Never guess.
@@ -302,11 +459,20 @@ ${costFacts}
 
 USING THE INTERFACE TOOLS
 - Use open_consent_section when the patient asks to see overview, anatomy, choices/options, timeline/recovery, costs, teach-back, or review.
-- Use focus_anatomy before saying the model moved, zoomed, rotated, or highlighted a structure. "Whole person" means body; "damaged part" means tear; "camera entry" means portals.
-- Use preview_procedure_step before saying a procedure animation or step is visible.
+- Use show_body_overview to show the whole person in front, back, left, right, or three-quarter view. Use focus_body_region with right-knee before saying the affected knee is in focus.
+- Use enter_procedure with knee-arthroscopy before beginning the detailed knee walkthrough. Use play_procedure_step only with an approved step for knee-arthroscopy: ${procedureStepIds.join(", ")}.
+- Use highlight_structure only for an approved structure: ${structureIds.join(", ")}. Use blue for orientation, orange for tissue that may be treated, faint red comparison only for the whole joint or a risk area, and green only for an explained/completed visual state.
+- Use set_visual_mode only when the explanation benefits from normal, transparent, xray, or isolated context. Use return_to_overview to pull back to the whole person after the explanation.
 - Use focus_option to bring one option into focus, but still frame it neutrally and compare equally when asked.
 - Wait for a successful tool response before claiming that the interface changed. If a tool fails, say the view could not be changed and continue verbally.
+- Never invent an identifier, procedure step, structure, region, color, or visual mode. Never describe camera coordinates, mesh names, materials, or rendering internals.
 - request_human only after the patient directly requests a person or explicitly confirms your offer. Their request itself counts as confirmation. Never claim a message was sent or an appointment was booked; the demo only prepares a handoff request.
+
+WHOLE-KNEE MISCONCEPTION SEQUENCE
+- If the patient asks whether the whole knee is being replaced, treat it as a possible misconception. Enter knee-arthroscopy if needed, then call play_procedure_step with knee-arthroscopy and misconception-comparison.
+- After that tool succeeds, say: "No. This plan is not a whole-knee replacement. The complete joint is shown faintly in red for comparison, while the smaller meniscus area that may be trimmed or repaired is orange. The final action depends on what the surgeon sees."
+- Then call play_procedure_step with knee-arthroscopy and patient-teachback. After it succeeds, ask: "In your own words, what part of the knee may be treated?" Then stop and wait for the patient's answer.
+- Do not grade the answer yourself or claim it was recorded. The ConsentLoop application and Medplum workflow assess and store the response. If the app reports that the answer remains incorrect or uncertain, keep the issue unresolved and offer clinician review.
 
 Begin with this greeting, then wait: "Hi Jordan, I’m your consent guide. I can explain the options Dr. Chen prepared and move the 3D model as we talk. I don’t choose a treatment or replace your care team. You can interrupt me or ask for a person at any time. Where would you like to start?"`;
 
@@ -330,39 +496,102 @@ export const voiceToolDefinitions = [
     },
   },
   {
-    name: "focus_anatomy",
+    name: "show_body_overview",
     description:
-      "Open the anatomy experience and focus a grounded structure, optionally changing its camera framing.",
+      "Show the lightweight whole-person overview using an approved camera preset.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        target: {
+        view: {
           type: "string",
-          enum: anatomyVoiceTargets,
-          description:
-            "body is the whole person; portals are the arthroscopy camera entry points.",
-        },
-        camera: {
-          type: "string",
-          enum: anatomyCameraActions,
-          description: "Optional camera action to apply after focusing the target.",
+          enum: bodyViews,
+          description: "Optional whole-body camera preset. Defaults to the current overview view.",
         },
       },
-      required: ["target"],
+      required: [],
     },
   },
   {
-    name: "preview_procedure_step",
+    name: "focus_body_region",
     description:
-      "Open anatomy and preview one illustrated knee-arthroscopy step.",
+      "Focus one configured body region before explaining where the procedure occurs.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        step: { type: "string", enum: procedureVoiceSteps },
+        regionId: {
+          type: "string",
+          enum: bodyRegionIds,
+          description: "A configured procedure region, currently the right knee.",
+        },
       },
-      required: ["step"],
+      required: ["regionId"],
+    },
+  },
+  {
+    name: "enter_procedure",
+    description:
+      "Transition from the full-body overview into one approved detailed procedure.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        procedureId: { type: "string", enum: procedureIds },
+      },
+      required: ["procedureId"],
+    },
+  },
+  {
+    name: "play_procedure_step",
+    description:
+      "Show one configured educational step for an approved procedure. Never invent a step ID.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        procedureId: { type: "string", enum: procedureIds },
+        stepId: { type: "string", enum: procedureStepIds },
+      },
+      required: ["procedureId", "stepId"],
+    },
+  },
+  {
+    name: "highlight_structure",
+    description:
+      "Highlight one approved educational structure with a semantic color.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        structureId: { type: "string", enum: structureIds },
+        color: { type: "string", enum: highlightColors },
+      },
+      required: ["structureId", "color"],
+    },
+  },
+  {
+    name: "set_visual_mode",
+    description:
+      "Change the educational rendering mode without directly controlling scene materials.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        mode: { type: "string", enum: visualModes },
+      },
+      required: ["mode"],
+    },
+  },
+  {
+    name: "return_to_overview",
+    description:
+      "Return smoothly from the detailed procedure to the whole-person overview.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {},
+      required: [],
     },
   },
   {

@@ -6,3 +6,4 @@ export * from "./provenance";
 export * from "./session";
 export * from "./consent-state";
 export * from "./reset";
+export * from "./teachback";

@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  anatomyCommandToVisualizationControls,
   initialAnatomyState,
   reduceAnatomyCommand,
+  visualizationSnapshotToAnatomyState,
 } from "../app/lib/anatomy-commands";
+import { initialVisualizationSnapshot } from "../app/lib/visualization-controller";
 import {
   sceneCommandToVizCommand,
   translateVizCommand,
@@ -154,4 +157,39 @@ test("viewer modes and shared body targets map to the right view", () => {
     type: "target.select",
     targets: ["anatomy.body"],
   });
+});
+
+test("legacy viewer commands delegate to the single high-level controller", () => {
+  assert.deepEqual(
+    anatomyCommandToVisualizationControls({ type: "focus", target: "tear" }),
+    [
+      { type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" },
+      {
+        type: "HIGHLIGHT_STRUCTURE",
+        structureId: "meniscus-tear",
+        color: "orange",
+      },
+    ],
+  );
+  assert.deepEqual(
+    anatomyCommandToVisualizationControls({ type: "set-stage", stage: "scope" }),
+    [
+      {
+        type: "PLAY_PROCEDURE_STEP",
+        procedureId: "knee-arthroscopy",
+        stepId: "access-point",
+      },
+    ],
+  );
+  assert.deepEqual(
+    visualizationSnapshotToAnatomyState(initialVisualizationSnapshot),
+    {
+      target: "body",
+      stage: "overview",
+      viewMode: "body",
+      autoRotate: true,
+      rotation: Math.PI / 4,
+      zoom: 1,
+    },
+  );
 });
