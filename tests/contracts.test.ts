@@ -25,6 +25,7 @@ test('parses a complete option-bearing consent session', () => {
       catalogVersion: '1.0.0',
       snapshotVersion: 'a'.repeat(64),
       createdAt: '2026-08-01T12:00:00.000Z',
+      diagnosticReferences: ['DiagnosticReport/mri-1'],
       sourceCoverage: 'Meniscal treatment paths reviewed for the India demo.',
       options: [rehabPatientOption],
     },

@@ -12,7 +12,7 @@ import {
   type OptionSnapshot,
   type TreatmentOption,
 } from '../shared/index.js';
-import { getStringExtension, stringExtension } from './extensions.js';
+import { getStringExtension, replaceStringExtension, stringExtension } from './extensions.js';
 import { CATALOG_COVERAGE, readCatalogOptions, validateOptionCatalog } from './option-catalog.js';
 
 export interface OptionDecision {
@@ -27,6 +27,7 @@ export interface SnapshotInput {
   encounterReference?: string;
   authorReference: string;
   diagnosticReferences: string[];
+  diagnosticVersions?: Readonly<Record<string, string>>;
   catalog: PlanDefinition;
   decisions: Readonly<Record<string, OptionDecision>>;
   createdAt: string;
@@ -54,6 +55,7 @@ export function buildOptionSnapshot(input: SnapshotInput): OptionSnapshot {
     patientId: input.patientId,
     serviceRequestId: input.serviceRequestId,
     diagnosticReferences: [...input.diagnosticReferences].sort(),
+    ...(input.diagnosticVersions ? { diagnosticVersions: { ...input.diagnosticVersions } } : {}),
     catalogVersion,
     sourceCoverage: input.catalog.description ?? CATALOG_COVERAGE,
     options,
@@ -64,6 +66,24 @@ export function buildOptionSnapshot(input: SnapshotInput): OptionSnapshot {
     snapshotVersion: sha256(material),
     createdAt: input.createdAt,
   });
+}
+
+function snapshotMaterial(snapshot: OptionSnapshot): Omit<OptionSnapshot, 'id' | 'snapshotVersion' | 'createdAt'> {
+  const materialOptions = snapshot.options.map(({ preference: _preference, questions: _questions, ...option }) => option);
+  return {
+    patientId: snapshot.patientId,
+    serviceRequestId: snapshot.serviceRequestId,
+    diagnosticReferences: [...snapshot.diagnosticReferences].sort(),
+    ...(snapshot.diagnosticVersions ? { diagnosticVersions: { ...snapshot.diagnosticVersions } } : {}),
+    catalogVersion: snapshot.catalogVersion,
+    sourceCoverage: snapshot.sourceCoverage,
+    options: materialOptions,
+  };
+}
+
+export function reversionOptionSnapshot(snapshot: OptionSnapshot): OptionSnapshot {
+  const parsed = optionSnapshotSchema.parse(snapshot);
+  return { ...parsed, snapshotVersion: sha256(snapshotMaterial(parsed)) };
 }
 
 function activity(option: TreatmentOption, catalogVersion: string): NonNullable<CarePlan['activity']>[number] {
@@ -108,6 +128,24 @@ export function readOptionSnapshot(carePlan: CarePlan): OptionSnapshot {
   const encoded = getStringExtension(carePlan.extension, SNAPSHOT_EXTENSION_URL);
   if (!encoded) throw new Error('CarePlan has no ConsentLoop option snapshot');
   return optionSnapshotSchema.parse(JSON.parse(encoded));
+}
+
+export function writeOptionSnapshot(carePlan: CarePlan, snapshot: OptionSnapshot): CarePlan {
+  const parsed = reversionOptionSnapshot(snapshot);
+  const optionById = new Map(parsed.options.map((option) => [option.id, option]));
+  const updateActivity = (entry: NonNullable<CarePlan['activity']>[number]): NonNullable<CarePlan['activity']>[number] => {
+    const option = entry.id ? optionById.get(entry.id) : undefined;
+    if (!option || !entry.detail) return entry;
+    return {
+      ...entry,
+      detail: { ...entry.detail, extension: replaceStringExtension(entry.detail.extension, OPTION_EXTENSION_URL, canonicalJson(option)) },
+    };
+  };
+  return {
+    ...structuredClone(carePlan),
+    extension: replaceStringExtension(carePlan.extension, SNAPSHOT_EXTENSION_URL, canonicalJson(parsed)),
+    ...(carePlan.activity ? { activity: carePlan.activity.map(updateActivity) } : {}),
+  };
 }
 
 export function diagnosticReferences(request: ServiceRequest, reports: DiagnosticReport[]): string[] {

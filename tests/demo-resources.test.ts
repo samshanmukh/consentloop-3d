@@ -20,9 +20,11 @@ test('seeds the complete synthetic journey idempotently', async () => {
   const first = await seedDemo(writer);
   const second = await seedDemo(writer);
 
-  assert.equal(writer.resources.size, 11);
+  assert.equal(writer.resources.size, 13);
   assert.equal(first.patient.id, second.patient.id);
   assert.equal(first.serviceRequest.id, second.serviceRequest.id);
+  assert.equal(first.patientAccessPolicy.id, second.patientAccessPolicy.id);
+  assert.equal(first.clinicianAccessPolicy.id, second.clinicianAccessPolicy.id);
   assert.match(first.xray.conclusion ?? '', /No radiographic finding explains/u);
   assert.match(first.mri.conclusion ?? '', /complex irregular meniscal tear/u);
   assert.match(first.mriStudy.description ?? '', /No real scan/u);

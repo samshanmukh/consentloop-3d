@@ -20,11 +20,14 @@ import {
   buildOptionCarePlan,
   diagnosticReferences,
   identifierQuery,
+  readOptionSnapshot,
   type Identified,
   type OptionDecision,
 } from '../../packages/fhir/index.js';
 import {
   demoTag,
+  canonicalJson,
+  defaultComprehensionConcepts,
   deterministicUuid,
   FHIR_BASE,
   IDENTIFIER_SYSTEM,
@@ -34,6 +37,8 @@ import {
   PROCEDURE_CODE_SYSTEM,
   SESSION_KEY_EXTENSION_URL,
   TAG_SYSTEM,
+  WORKFLOW_EXTENSION_URL,
+  initialConsentWorkflow,
 } from '../../packages/shared/index.js';
 import { stringExtension } from '../../packages/fhir/extensions.js';
 
@@ -122,7 +127,8 @@ function taskResource(input: PreparationInput, carePlanUrl: string): Task {
   });
 }
 
-function consentResource(input: PreparationInput): Consent {
+function consentResource(input: PreparationInput, snapshotVersion: string): Consent {
+  const workflow = initialConsentWorkflow(`Patient/${input.patient.id}`, snapshotVersion, defaultComprehensionConcepts());
   return tagged({
     resourceType: 'Consent',
     identifier: [{ system: IDENTIFIER_SYSTEM, value: sessionIdentifier('consent', input.request.id) }],
@@ -133,7 +139,10 @@ function consentResource(input: PreparationInput): Consent {
     dateTime: input.now,
     performer: [reference(input.patient)],
     sourceReference: reference(input.consentDocument),
-    extension: [stringExtension(SESSION_KEY_EXTENSION_URL, `prepare:${input.request.id}`)],
+    extension: [
+      stringExtension(SESSION_KEY_EXTENSION_URL, `prepare:${input.request.id}`),
+      stringExtension(WORKFLOW_EXTENSION_URL, canonicalJson(workflow)),
+    ],
   });
 }
 
@@ -195,6 +204,10 @@ export function buildPreparationBundle(input: PreparationInput): Bundle {
     encounterReference: `Encounter/${input.encounter.id}`,
     authorReference: requesterReference(input.request).reference,
     diagnosticReferences: diagnosticReferences(input.request, input.diagnostics),
+    diagnosticVersions: Object.fromEntries(input.diagnostics.map((report) => [
+      `DiagnosticReport/${report.id}`,
+      report.meta?.versionId ?? report.meta?.lastUpdated ?? 'unknown',
+    ])),
     catalog: input.catalog,
     decisions: defaultDecisions(),
     createdAt: input.now,
@@ -206,7 +219,7 @@ export function buildPreparationBundle(input: PreparationInput): Bundle {
     entry: [
       conditionalEntry(carePlan, carePlanUrl, identifierQuery(sessionIdentifier('options', input.request.id))),
       conditionalEntry(taskResource(input, carePlanUrl), taskUrl, identifierQuery(sessionIdentifier('task', input.request.id))),
-      conditionalEntry(consentResource(input), consentUrl, identifierQuery(sessionIdentifier('consent', input.request.id))),
+      conditionalEntry(consentResource(input, readOptionSnapshot(carePlan).snapshotVersion), consentUrl, identifierQuery(sessionIdentifier('consent', input.request.id))),
       conditionalEntry(responseResource(input, carePlanUrl), responseUrl, identifierQuery(sessionIdentifier('questionnaire-response', input.request.id))),
       conditionalEntry(agentDevice(input), deviceUrl, identifierQuery(`bot-agent:${PREPARE_BOT_IDENTIFIER}`)),
       conditionalEntry(

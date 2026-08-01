@@ -1,4 +1,5 @@
 import type {
+  AccessPolicy,
   DiagnosticReport,
   DocumentReference,
   Encounter,
@@ -22,6 +23,7 @@ import {
 } from '../shared/index.js';
 import type { FhirWriter, Identified } from './client.js';
 import { buildOptionCatalog } from './option-catalog.js';
+import { clinicianDemoAccessPolicy, patientSessionAccessPolicy } from './session-read-model.js';
 
 export const DEMO_IDENTIFIERS = {
   patient: 'patient-arjun-synthetic',
@@ -48,6 +50,8 @@ export interface SeededDemo {
   questionnaire: Identified<Questionnaire>;
   consentDocument: Identified<DocumentReference>;
   serviceRequest: Identified<ServiceRequest>;
+  patientAccessPolicy: Identified<AccessPolicy>;
+  clinicianAccessPolicy: Identified<AccessPolicy>;
 }
 
 export function identifierQuery(value: string): string {
@@ -86,7 +90,14 @@ export async function seedDemo(client: FhirWriter): Promise<SeededDemo> {
     serviceRequestResource(patient, practitioner, encounter, mri),
     DEMO_IDENTIFIERS.serviceRequest,
   );
-  return { catalog, patient, practitioner, encounter, examination, xray, mriStudy, mri, questionnaire, consentDocument, serviceRequest };
+  const patientPolicy = patientSessionAccessPolicy(patient.id);
+  const clinicianPolicy = clinicianDemoAccessPolicy();
+  const patientAccessPolicy = await client.upsertResource(patientPolicy, `name=${encodeURIComponent(patientPolicy.name ?? '')}`);
+  const clinicianAccessPolicy = await client.upsertResource(clinicianPolicy, `name=${encodeURIComponent(clinicianPolicy.name ?? '')}`);
+  return {
+    catalog, patient, practitioner, encounter, examination, xray, mriStudy, mri, questionnaire,
+    consentDocument, serviceRequest, patientAccessPolicy, clinicianAccessPolicy,
+  };
 }
 
 function patientResource(): Patient {

@@ -402,10 +402,13 @@ npm install
 npm test
 npm run seed:demo
 npm run deploy:prepare
+npm run deploy:assess
 npm run smoke:prepare
+npm run reset:demo
+npm run smoke:full
 ```
 
-The scripts use Node's native `.env` loading. `seed:demo` upserts the synthetic diagnostic journey, `deploy:prepare` idempotently deploys the Bot and Subscription, and `smoke:prepare` creates a unique eligible `ServiceRequest` and waits up to 30 seconds for the complete option-aware consent session.
+The scripts use Node's native `.env` loading. `seed:demo` upserts the synthetic journey and role-scoped access policies. The two deploy commands idempotently deploy the preparation and teach-back Bots and Subscriptions. `smoke:prepare` checks session creation; `smoke:full` safely resets only tagged synthetic resources and proves referral blocking and resolution, contradiction and correction, stale-snapshot review, explicit signature, role-safe read models, and the final audit trail. Run `smoke:full` twice before a demo to verify replay safety.
 
 ## Demo script
 
