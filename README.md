@@ -4,7 +4,7 @@
 
 ConsentLoop 3D is a voice-guided, interactive informed-consent experience that helps patients understand a medical procedure before signing. It combines adaptive conversation, explorable 3D anatomy, teach-back verification, and a FHIR-native clinical workflow built around Medplum.
 
-Built for the **YC Ã— Medplum Agentic Healthcare Hackathon 2026**.
+Built for the **YC × Medplum Agentic Healthcare Hackathon 2026**.
 
 ## The problem
 
@@ -27,12 +27,14 @@ ConsentLoop turns consent into a measurable clinical workflow.
 2. A FHIR Subscription triggers a Medplum Bot.
 3. The Bot creates a personalized consent session and comprehension assessment.
 4. A voice agent explains the procedure while controlling an interactive 3D model.
-5. The patient interrupts naturally and explores relevant anatomy.
-6. The patient explains the procedure back in their own words.
-7. Misconceptions are detected and clarified visually and verbally.
-8. Medplum records structured comprehension results.
-9. Critical uncertainty creates a clinician Task and blocks completion.
-10. Once resolved, the signed Consent and its full audit trail are recorded.
+5. The patient compares only the procedure and non-procedure options approved for their case.
+6. The app shows the likely timeline, recovery milestones, practical constraints, and cost-estimate inputs for each option.
+7. The patient records questions, preferences, and what matters most to them without the app making the clinical decision.
+8. The patient interrupts naturally, explores relevant anatomy, and explains the plan back in their own words.
+9. Misconceptions are detected and clarified visually and verbally.
+10. Medplum records the selected preference, open questions, and structured comprehension results.
+11. Critical uncertainty or an unresolved decision creates a clinician Task and blocks completion.
+12. Once resolved, the signed Consent and its full audit trail are recorded.
 
 ConsentLoop assists informed-consent education and workflow management. It does not replace the clinician, provide medical advice, or independently determine whether consent is legally valid.
 
@@ -48,9 +50,48 @@ The patient can:
 - watch the arthroscope insertion path;
 - compare untreated and treated states;
 - select risk hotspots; and
-- ask questions such as, â€œAre you replacing my entire knee?â€
+- ask questions such as, “Are you replacing my entire knee?”
 
-If the patient incorrectly says, â€œThe surgeon is replacing my entire knee,â€ ConsentLoop returns to the affected meniscus, highlights only the treated region, explains the distinction, and asks the patient to try again.
+If the patient incorrectly says, “The surgeon is replacing my entire knee,” ConsentLoop returns to the affected meniscus, highlights only the treated region, explains the distinction, and asks the patient to try again.
+
+## Guided options and decision support
+
+ConsentLoop includes a decision workspace before signature. The clinician or care team defines which choices are medically appropriate for the individual patient; the app does not generate a treatment menu from a diagnosis alone.
+
+Each approved option is shown in a consistent comparison view:
+
+| Category | What the patient sees |
+| --- | --- |
+| What happens | Plain-language explanation and an option-specific 3D scene |
+| Expected benefit | Clinician-approved goal and the uncertainty around the outcome |
+| Material risks | Common and serious risks, including how they differ by option |
+| Alternatives | Observation, rehabilitation, another procedure, postponement, or declining when applicable |
+| Timeline | Decision deadline, preparation, appointment windows, procedure duration, and follow-ups |
+| Recovery | Pain and mobility expectations, restrictions, equipment, therapy, driving, work, caregiving, and warning signs |
+| Cost details | Facility estimate, professional fees, benefits information, deductible status, copay or coinsurance, included services, and known exclusions |
+| Confidence | Source and timestamp for every clinical, scheduling, and financial statement |
+
+Patients can mark an option as **preferred**, **not preferred**, or **unsure**; add a reason; and ask the care team a question. A preference is not treated as consent. The final plan must still be confirmed by an authorized clinician, taught back successfully, and signed through the normal consent workflow.
+
+### Realistic patient scenario
+
+Jordan is a synthetic 42-year-old warehouse supervisor with a meniscus tear. The orthopedist has determined that three paths are reasonable for this case:
+
+1. Continue physical therapy for six more weeks and reassess.
+2. Schedule arthroscopy with possible partial meniscectomy if the damaged tissue is not repairable.
+3. Schedule arthroscopy with meniscus repair if the tissue is repairable, accepting a longer protected recovery.
+
+Jordan needs to stand at work, cares for a child on alternate weeks, has a family wedding in five weeks, and has not met the annual deductible. ConsentLoop turns those facts into questions and a side-by-side planning view rather than a recommendation.
+
+| Option | Example timeline | Example recovery | Example cost presentation |
+| --- | --- | --- | --- |
+| More physical therapy | Two visits per week for six weeks, then clinical review | Usually no surgical downtime; activity may still be limited by symptoms | Remaining authorized visits, copay per visit, and an estimated six-week total |
+| Arthroscopy with possible trimming | Available dates, pre-op steps, day-of logistics, and follow-up window | Often earlier weight bearing and return to desk work than repair, but individual restrictions vary | Facility, surgeon, anesthesia, imaging, and therapy estimates shown separately |
+| Arthroscopy with possible repair | Same scheduling inputs, with the possibility that the intraoperative finding changes the final procedure | Brace or crutches and a longer period of restricted weight bearing may be required | Range includes the repair scenario and likely additional therapy; uncertainty is explicit |
+
+The app detects conflicts such as “preferred date overlaps the wedding” or “no adult is available for the first night,” then offers actions such as comparing another appointment window or sending a question to the scheduler. It does not conclude that one treatment is best.
+
+Cost figures are estimates, never guarantees. Eligibility data can explain current coverage, but it cannot by itself determine the final patient responsibility. ConsentLoop displays the estimate date, data sources, assumptions, network status, services that may bill separately, and a route to financial counseling. Financial uncertainty never changes the clinical explanation or hides a medically reasonable option.
 
 ## Why Medplum is the core
 
@@ -77,10 +118,15 @@ flowchart TD
 | `Patient` | Demographics, language, communication, and accessibility context |
 | `ServiceRequest` | The ordered procedure that initiates the workflow |
 | `Encounter` | Clinical context for the procedure and consent session |
+| `Appointment` | Proposed and confirmed procedure, preparation, and follow-up times |
+| `HealthcareService` and `Schedule` | Available locations, services, and appointment windows |
 | `Questionnaire` | Required comprehension concepts and teach-back rubric |
-| `QuestionnaireResponse` | Structured patient answers, uncertainty, and comprehension results |
+| `QuestionnaireResponse` | Structured patient answers, priorities, preferences, uncertainty, and comprehension results |
 | `Task` | Consent education state and clinician escalation |
 | `Consent` | Patient choices and consent lifecycle status |
+| `Coverage` | The coverage context used for a financial estimate |
+| `CoverageEligibilityResponse` | Eligibility and benefit details returned for the planned service |
+| `ClaimResponse` or payer estimate artifact | Pre-service estimate details when available; never represented as a final bill |
 | `DocumentReference` | Versioned human-readable consent form and generated summary |
 | `Binary` | Protected transcript, audio, or related artifact when required |
 | `Provenance` | Source, derivation, authorship, and agent-assisted transformations |
@@ -94,6 +140,8 @@ The primary workflow uses two Medplum automations:
 2. **Assessment subscription:** watches completed or updated `QuestionnaireResponse` resources and invokes the comprehension Bot.
 
 The preparation Bot creates the patient session, assessment, and workflow Task. The comprehension Bot evaluates mandatory concepts, advances or blocks the Task, creates clinician escalation, and controls whether the Consent can become active.
+
+A separate planning step reads clinician-approved alternatives, available appointment windows, recovery content, and financial estimate artifacts. The patient-facing decision snapshot is versioned so the audit trail records exactly what options, dates, assumptions, and prices the patient saw. Any material clinical or financial change invalidates the stale snapshot and prompts review before signature.
 
 ## Adaptive 3D consent
 
@@ -157,7 +205,8 @@ Optional financial-consent step:
 
 - real-time eligibility and benefits check;
 - coverage, copay, and deductible retrieval;
-- correction of misconceptions such as â€œauthorization means I owe nothing.â€
+- correction of misconceptions such as “authorization means I owe nothing.”
+- clear separation between eligibility information, a pre-service estimate, and the final adjudicated amount.
 
 ## Clinician dashboard
 
@@ -171,6 +220,9 @@ It shows:
 - evidence and transcript excerpts;
 - visualization scenes viewed;
 - unresolved questions;
+- preferred option, stated priorities, and reasons for uncertainty;
+- scheduling constraints and recovery-support gaps;
+- cost-estimate source, timestamp, assumptions, and acknowledged uncertainties;
 - escalation Tasks; and
 - a live FHIR event stream.
 
@@ -196,6 +248,11 @@ Each event can expand to show the underlying Medplum resource.
 - Critical uncertainty escalates to a clinician.
 - A comprehension score is decision support, not a legal conclusion.
 - The patient can request a human or stop the session at any time.
+- Procedure options come from the treating team and are filtered to the patient's documented clinical context.
+- The app records preferences and tradeoffs but does not prescribe, rank options by profit, or select a procedure for the patient.
+- Availability and cost never suppress clinically reasonable alternatives.
+- Timeline and recovery ranges identify their clinical source and avoid promises about individual outcomes.
+- Cost estimates show their source, age, assumptions, network status, and exclusions and are never presented as a guarantee.
 - Consent is never activated merely because the model reports high confidence.
 - Demo data is synthetic and contains no real patient information.
 - Audio retention is optional and governed by access policy.
@@ -210,6 +267,9 @@ Each event can expand to show the underlying Medplum resource.
 - Live voice conversation
 - Three teach-back concepts
 - One intentionally detectable misconception
+- Clinician-approved option comparison with patient preference capture
+- Procedure timeline and recovery planner with one scheduling or support conflict
+- Itemized synthetic cost estimate with coverage assumptions and uncertainty labels
 - Structured `QuestionnaireResponse`
 - Clinician escalation `Task`
 - Consent status transition
@@ -241,21 +301,21 @@ Each event can expand to show the underlying Medplum resource.
 
 ```text
 consentloop-3d/
-â”œâ”€â”€ apps/
-â”‚   â”œâ”€â”€ patient/             # Voice-guided 3D patient experience
-â”‚   â””â”€â”€ clinician/           # Review queue and FHIR event stream
-â”œâ”€â”€ bots/
-â”‚   â”œâ”€â”€ prepare-consent/     # ServiceRequest subscription handler
-â”‚   â””â”€â”€ assess-teachback/    # QuestionnaireResponse evaluator
-â”œâ”€â”€ packages/
-â”‚   â”œâ”€â”€ fhir/                # Profiles, fixtures, and resource helpers
-â”‚   â”œâ”€â”€ procedure-content/   # Approved explanations and concept rubric
-â”‚   â””â”€â”€ three-d/             # Scenes, hotspots, and camera commands
-â”œâ”€â”€ assets/
-â”‚   â””â”€â”€ models/              # Licensed GLB assets and attribution
-â”œâ”€â”€ scripts/
-â”‚   â””â”€â”€ seed-demo.ts         # Synthetic demo patient and procedure
-â””â”€â”€ README.md
+├── apps/
+│   ├── patient/             # Voice-guided 3D patient experience
+│   └── clinician/           # Review queue and FHIR event stream
+├── bots/
+│   ├── prepare-consent/     # ServiceRequest subscription handler
+│   └── assess-teachback/    # QuestionnaireResponse evaluator
+├── packages/
+│   ├── fhir/                # Profiles, fixtures, and resource helpers
+│   ├── procedure-content/   # Approved explanations and concept rubric
+│   └── three-d/             # Scenes, hotspots, and camera commands
+├── assets/
+│   └── models/              # Licensed GLB assets and attribution
+├── scripts/
+│   └── seed-demo.ts         # Synthetic demo patient and procedure
+└── README.md
 ```
 
 ## Environment variables
@@ -278,13 +338,18 @@ Do not commit real credentials. Use only synthetic patient data during developme
 1. Create a knee-arthroscopy `ServiceRequest` in Medplum.
 2. Show the Subscription firing and the consent Task appearing.
 3. Open the patient link and begin the voice session.
-4. Let the agent guide the 3D procedure visualization.
-5. Ask, â€œAre you replacing my whole knee?â€
-6. Give the intentionally incorrect teach-back.
-7. Show the misconception turn red and the Consent remain blocked.
-8. Let the agent focus the model on the meniscus and clarify.
-9. Give the corrected teach-back.
-10. Show the `QuestionnaireResponse`, completed Task, Consent transition, and audit trail in Medplum.
+4. Compare physical therapy, possible partial meniscectomy, and possible meniscus repair using the same clinical categories.
+5. Add the wedding, standing-at-work requirement, caregiving schedule, and lack of first-night support.
+6. Show the app flag a timeline conflict and an unresolved recovery-support need without recommending a treatment.
+7. Compare synthetic itemized cost ranges and explain why eligibility is not a final price.
+8. Record a preferred option and send one unresolved scheduling or financial question to the care team.
+9. Let the agent guide the 3D procedure visualization.
+10. Ask, “Are you replacing my whole knee?”
+11. Give the intentionally incorrect teach-back.
+12. Show the misconception turn red and the Consent remain blocked.
+13. Let the agent focus the model on the meniscus and clarify.
+14. Give the corrected teach-back.
+15. Show the preference snapshot, `QuestionnaireResponse`, completed Task, Consent transition, and audit trail in Medplum.
 
 ## Success metrics
 
@@ -293,6 +358,9 @@ Do not commit real credentials. Use only synthetic patient data during developme
 - Sessions requiring clinician intervention
 - Time clinicians spend resolving escalations
 - Patient-reported confidence before and after visualization
+- Percentage of patients who can distinguish their options, timeline, recovery obligations, and estimate assumptions
+- Scheduling or at-home support conflicts surfaced before the procedure date
+- Financial questions routed to staff before consent completion
 - Consent completion without unresolved critical uncertainty
 
 ## Hackathon pitch
@@ -302,4 +370,3 @@ Do not commit real credentials. Use only synthetic patient data during developme
 ## License
 
 MIT. Any anatomical models included in the project must retain their original licensing and attribution.
-
