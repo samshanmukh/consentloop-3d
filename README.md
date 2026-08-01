@@ -40,7 +40,7 @@ ConsentLoop assists informed-consent education and workflow management. It does 
 
 ## Interactive UI demo
 
-The repository now includes a complete synthetic patient frontend for Jordan Lee's knee-arthroscopy journey. It contains seven responsive views: overview, interactive 3D procedure, option comparison, timeline and recovery planning, cost details, teach-back, and clinician-review handoff.
+The repository now includes a complete synthetic patient frontend for Jordan Lee's knee-arthroscopy journey. It contains seven responsive views: overview, interactive 3D procedure, option comparison, timeline and recovery planning, cost details, teach-back, and clinician-review handoff. A persistent Deepgram voice guide can explain the synthetic scenario, open any of those views, and control the 3D model with patient-friendly commands.
 
 The 3D viewer now begins with a complete, locally bundled muscular-body model, marks the patient’s right knee, and smoothly moves from whole-person orientation into a separately detailed knee model. Patients can drag to rotate, scroll or pinch to zoom, use explicit zoom controls, enter full screen, or return to the full body at any time. Every voice-driven action has a manual equivalent. Person 3 can control the viewer through the versioned semantic `consentloop.viz-command.v1` browser contract; Person 1 can replace the typed demo fixtures with Medplum-backed adapters without changing the presentation components.
 
@@ -49,6 +49,12 @@ For the live Medplum setup and workflow commands, see the [Person 1 runbook](RUN
 
 ```bash
 npm install
+
+# Keep this server-only. Never prefix it with VITE_ or NEXT_PUBLIC_.
+# Add it to .env for local Vinext/Cloudflare development.
+# The Deepgram key needs Member (or higher) permission for token grants.
+DEEPGRAM_API_KEY=your_deepgram_key
+
 npm run dev
 
 # Before pushing
@@ -182,7 +188,19 @@ The implemented MVP uses React Three Fiber, Drei, and Three.js with two locally 
 
 ## Voice and comprehension loop
 
-Deepgram provides low-latency speech-to-text and text-to-speech for an interruption-friendly conversation.
+The patient UI now uses Deepgram's unified Voice Agent API for an interruption-friendly live conversation. A user must explicitly start the microphone. The persistent glass voice dock then shows real connection, listening, thinking, and speaking states; supports barge-in; displays live conversation text; accepts typed questions as an accessible alternative; and can be stopped at any time.
+
+The Deepgram API key stays in the Cloudflare Worker. `GET /api/deepgram-token` exchanges it for a short-lived browser grant with same-origin checks, an isolate-local abuse limit, sanitized errors, and `Cache-Control: no-store`. The browser connects to Deepgram with that temporary token and receives no long-lived secret. The included limiter is appropriate only for this owner-only synthetic demo; a public or multi-user deployment must add authenticated app sessions and a durable, shared rate limit before issuing billable tokens.
+
+Client-side voice tools are deliberately read-only. The agent can:
+
+- open Overview, Procedure, Options, Plan, Costs, Teach-back, or Review;
+- focus the whole body, right knee, meniscus, tear, ligaments, or camera portals;
+- preview orientation, tear, scope, possible treatment, or recovery scenes;
+- focus one of the three clinician-approved option cards without recording a preference; and
+- prepare a human-help handoff without scheduling, signing, acknowledging, or sending anything on the patient's behalf.
+
+The system prompt is grounded in the same synthetic fixtures rendered on screen. It frames physical therapy, possible trimming, and possible repair with equal weight; identifies estimates and recovery periods as ranges; never recommends a treatment; and explicitly distinguishes preference from consent.
 
 Moss retrieves the relevant procedure section, risk explanation, or clarification with low latency during the live voice interaction.
 
@@ -315,7 +333,7 @@ Each event can expand to show the underlying Medplum resource.
 | UI | Responsive glassmorphic CSS and Lucide icons |
 | 3D | React Three Fiber, Drei, Three.js, and an attributed knee GLB |
 | Clinical platform | Medplum FHIR, Bots, Subscriptions, AccessPolicy |
-| Voice | Manual demo controls now; Deepgram streaming STT and Aura TTS integration target |
+| Voice | Deepgram Voice Agent API, Flux speech recognition, managed conversational reasoning, Aura speech, barge-in, live captions, typed fallback, and client-side UI tools |
 | Retrieval | Moss semantic search integration target |
 | Eligibility | Optional Stedi test-mode healthcare API |
 | Validation | ESLint, TypeScript, rendered HTML tests, production build, and credential-free FHIR self-test |

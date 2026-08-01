@@ -17,9 +17,9 @@ reachable views:
 7. Review and FHIR event summary
 
 The demo uses Jordan Lee's synthetic right-meniscus scenario. Patient
-preferences, estimate acknowledgement, teach-back states, voice-demo states,
-and recovery-support conflicts are local UI state. No real patient information
-is stored or transmitted.
+preferences, estimate acknowledgement, teach-back states, live voice-session
+state, and recovery-support conflicts are local UI state. No real patient
+information is stored in the frontend.
 
 ## Person 1: Medplum/data integration
 
@@ -52,6 +52,33 @@ The demo uses the canonical `ComprehensionConceptId` and
 should write Person 1's shared concept IDs directly.
 
 ## Person 3: voice-to-3D integration
+
+Person 3's first live integration is implemented with `@deepgram/agents`. The
+browser never receives `DEEPGRAM_API_KEY`; the Worker route
+`GET /api/deepgram-token` returns only a short-lived Deepgram grant. Add the
+key to `.env` for local Vinext/Cloudflare development and configure the same
+server-side runtime variable in hosting. Do not use a `VITE_` or
+`NEXT_PUBLIC_` prefix.
+
+The voice guide is persistent across all seven views and begins only after the
+patient presses **Start voice**. Its lifecycle is driven by real SDK events:
+connecting, listening, thinking, speaking, reconnecting, stopped, or error.
+Speech playback is interrupted when the user begins talking, and typed input
+is available without a microphone.
+
+The agent exposes only read-only client tools:
+
+| Tool | UI effect | Explicit non-effect |
+| --- | --- | --- |
+| `open_consent_section` | Opens one of the seven journey views | Does not complete a step |
+| `focus_anatomy` | Opens Procedure, waits for the viewer bridge, and focuses a semantic target | Does not accept raw mesh names |
+| `preview_procedure_step` | Opens Procedure and runs an approved arthroscopy scene | Does not imply that step will occur |
+| `focus_option` | Opens Options and highlights therapy, possible trim, or possible repair | Does not record a preference |
+| `request_human` | Prepares a clinician, scheduler, or financial-help handoff in the UI | Does not send, schedule, or authorize anything |
+
+Function responses are returned to Deepgram only after the local UI action is
+validated. Unknown functions and invalid arguments receive structured errors.
+The agent must call a tool before saying it changed the screen.
 
 The viewer accepts a versioned semantic command rather than a raw transcript or
 Three.js mesh name. The public contract lives in `app/lib/viz-contract.ts`.

@@ -14,7 +14,7 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "npm run build && node --import tsx --test tests/rendered-html.test.mjs tests/anatomy-contract.test.ts",
+    "test": "npm run build && node --import tsx --test tests/rendered-html.test.mjs tests/anatomy-contract.test.ts tests/deepgram-token.test.ts tests/voice-agent.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "selftest": "tsx scripts/selftest.ts",
@@ -27,6 +27,7 @@
     "check-env": "tsx scripts/check-env.ts"
   },
   "dependencies": {
+    "@deepgram/agents": "^0.1.1",
     "@medplum/core": "^5.1.27",
     "@medplum/fhirtypes": "^5.1.27",
     "@react-three/drei": "^10.7.7",

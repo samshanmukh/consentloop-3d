@@ -26,7 +26,6 @@ import {
   Menu,
   MessageCircleQuestion,
   Mic,
-  MicOff,
   Moon,
   MoveRight,
   PanelLeftClose,
@@ -36,7 +35,6 @@ import {
   Search,
   Send,
   ShieldCheck,
-  Sparkles,
   Stethoscope,
   Sun,
   UserRound,
@@ -51,10 +49,26 @@ import type {
   ComprehensionStatus,
 } from "@consentloop/shared";
 import type {
-  AnatomyCommand,
   AnatomyState,
   AnatomyTarget,
 } from "../lib/anatomy-commands";
+import type {
+  VizAction,
+  VizAtomicAction,
+  VizCommandV1,
+  VizTargetId,
+} from "../lib/viz-contract";
+import {
+  type AnatomyCameraAction,
+  type AnatomyVoiceTarget,
+  type VoiceToolCall,
+  type VoiceToolExecutionResult,
+} from "../lib/voice-agent";
+import { useConsentVoiceAgent } from "../hooks/useConsentVoiceAgent";
+import {
+  ConsentVoiceDock,
+  type ConsentVoiceDockStatus,
+} from "./ConsentVoiceDock";
 import {
   careOptions,
   costBreakdown,
@@ -79,7 +93,6 @@ const KneeViewer = dynamic(
   },
 );
 
-type VoiceState = "idle" | "listening" | "thinking" | "speaking";
 type ConceptStatus = ComprehensionStatus;
 
 const navItems: Array<{
@@ -105,7 +118,7 @@ const pageCopy: Record<JourneyView, { eyebrow: string; title: string; body: stri
   anatomy: {
     eyebrow: "Interactive procedure guide",
     title: "See exactly what may happen inside your knee.",
-    body: "Rotate the model, select a guided scene, or use the demo voice prompts. Every control is available without speech.",
+    body: "Rotate the model, select a guided scene, or ask the live voice guide to move it with you. Every control is available without speech.",
   },
   options: {
     eyebrow: "Clinician-approved choices",
@@ -308,59 +321,44 @@ function OverviewView({ onNavigate }: { onNavigate: (view: JourneyView) => void 
   );
 }
 
-function VoicePanel({
-  voiceState,
+function VoiceGuidePanel({
+  onOpen,
   onPrompt,
-  onToggle,
 }: {
-  voiceState: VoiceState;
-  onPrompt: (prompt: string, command: AnatomyCommand) => void;
-  onToggle: () => void;
+  onOpen: () => void;
+  onPrompt: (prompt: string) => void;
 }) {
-  const prompts: Array<[string, AnatomyCommand]> = [
-    ["Show me the damaged part", { type: "set-stage", stage: "tear" }],
-    ["How does the camera enter?", { type: "set-stage", stage: "scope" }],
-    ["What might be trimmed?", { type: "set-stage", stage: "treatment" }],
-    ["Show the longer recovery", { type: "set-stage", stage: "recovery" }],
+  const prompts = [
+    "Show me the damaged part",
+    "How does the camera enter?",
+    "What might be trimmed?",
+    "Show the longer recovery",
   ];
-
   return (
     <section className="glass-card voice-panel">
       <div className="voice-panel-head">
-        <div className={`voice-orb voice-${voiceState}`}>
-          {voiceState === "idle" ? <Sparkles size={22} /> : <Mic size={22} />}
-          <i /><i /><i />
-        </div>
+        <div className="voice-orb"><Mic size={22} /></div>
         <div>
-          <span className="card-kicker">Voice guide demo</span>
-          <h3>
-            {voiceState === "idle" && "Ask about the model"}
-            {voiceState === "listening" && "Listening…"}
-            {voiceState === "thinking" && "Finding the right scene…"}
-            {voiceState === "speaking" && "Explaining the anatomy…"}
-          </h3>
+          <span className="card-kicker">Live Deepgram guide</span>
+          <h3>Ask and watch the model respond</h3>
         </div>
       </div>
       <p className="voice-caption">
-        “This highlighted crescent is your meniscus. The tear is limited to this
-        tissue—it is not a whole-knee replacement.”
+        The guide can explain this synthetic case, open any consent step, and
+        focus approved anatomy. It cannot recommend a treatment or record consent.
       </p>
       <div className="prompt-list">
-        {prompts.map(([label, command]) => (
-          <button key={label} onClick={() => onPrompt(label, command)}>
-            <span>{label}</span><ArrowRight size={15} />
+        {prompts.map((prompt) => (
+          <button key={prompt} onClick={() => onPrompt(prompt)}>
+            <span>{prompt}</span><ArrowRight size={15} />
           </button>
         ))}
       </div>
       <div className="voice-actions">
-        <button
-          className={`button ${voiceState === "idle" ? "button-primary" : "button-danger-soft"}`}
-          onClick={onToggle}
-        >
-          {voiceState === "idle" ? <Mic size={17} /> : <MicOff size={17} />}
-          {voiceState === "idle" ? "Start voice demo" : "Stop voice"}
+        <button className="button button-primary" onClick={onOpen}>
+          <Mic size={17} /> Open voice guide
         </button>
-        <button className="icon-button" aria-label="Request a human">
+        <button className="icon-button" aria-label="A human is always available" onClick={onOpen}>
           <Headphones size={18} />
         </button>
       </div>
@@ -369,17 +367,15 @@ function VoicePanel({
 }
 
 function AnatomyView({
-  voiceState,
-  onPrompt,
-  onVoiceToggle,
   anatomyState,
   onAnatomyState,
+  onVoiceOpen,
+  onVoicePrompt,
 }: {
-  voiceState: VoiceState;
-  onPrompt: (prompt: string, command: AnatomyCommand) => void;
-  onVoiceToggle: () => void;
   anatomyState: AnatomyState | null;
   onAnatomyState: (state: AnatomyState) => void;
+  onVoiceOpen: () => void;
+  onVoicePrompt: (prompt: string) => void;
 }) {
   const isBodyOverview = anatomyState?.viewMode !== "knee";
   const sceneNumber =
@@ -471,7 +467,7 @@ function AnatomyView({
             {isBodyOverview ? "Explore the right knee" : "Next: camera path"} <ArrowRight size={16} />
           </button>
         </section>
-        <VoicePanel voiceState={voiceState} onPrompt={onPrompt} onToggle={onVoiceToggle} />
+        <VoiceGuidePanel onOpen={onVoiceOpen} onPrompt={onVoicePrompt} />
       </aside>
     </div>
   );
@@ -532,11 +528,14 @@ function OptionCard({
 function OptionsView({
   preferences,
   onPreference,
+  selected,
+  onSelect,
 }: {
   preferences: Record<OptionId, Preference>;
   onPreference: (option: OptionId, preference: Exclude<Preference, null>) => void;
+  selected: OptionId;
+  onSelect: (option: OptionId) => void;
 }) {
-  const [selected, setSelected] = useState<OptionId>("trim");
   const activeOption = careOptions.find((option) => option.id === selected)!;
 
   return (
@@ -553,7 +552,7 @@ function OptionsView({
             option={option}
             preference={preferences[option.id]}
             selected={selected === option.id}
-            onSelect={() => setSelected(option.id)}
+            onSelect={() => onSelect(option.id)}
             onPreference={(preference) => onPreference(option.id, preference)}
           />
         ))}
@@ -836,13 +835,92 @@ function ReviewView({
   );
 }
 
+const voiceTargetIds: Record<AnatomyVoiceTarget, VizTargetId> = {
+  body: "anatomy.body",
+  knee: "anatomy.knee",
+  meniscus: "anatomy.meniscus.medial",
+  tear: "anatomy.meniscus.tear",
+  ligaments: "anatomy.ligament.cruciate",
+  portals: "procedure.portals",
+};
+
+const voicePromptChips = [
+  {
+    id: "procedure",
+    label: "Show the damaged part",
+    message: "Show me the damaged part in the 3D model and explain it.",
+  },
+  {
+    id: "options",
+    label: "Compare my options",
+    message: "Explain all three available options with equal weight.",
+  },
+  {
+    id: "recovery",
+    label: "Compare recovery",
+    message: "Compare the recovery ranges for therapy, possible trim, and possible repair.",
+  },
+  {
+    id: "costs",
+    label: "Explain the estimate",
+    message: "Open the cost details and explain what could change the estimate.",
+  },
+] as const;
+
+function buildAnatomyVoiceAction(
+  target: AnatomyVoiceTarget,
+  camera?: AnatomyCameraAction,
+): VizAction {
+  const targetId = voiceTargetIds[target];
+  const focusAction: VizAtomicAction =
+    target === "body"
+      ? { type: "target.select", targets: [targetId], behavior: "replace" }
+      : { type: "target.isolate", targets: [targetId], contextOpacity: 0.2 };
+
+  let cameraAction: VizAtomicAction | null = null;
+  if (camera === "zoom_in") cameraAction = { type: "camera.zoom", factor: 1.35 };
+  if (camera === "zoom_out") cameraAction = { type: "camera.zoom", factor: 0.74 };
+  if (camera === "rotate_left") cameraAction = { type: "camera.orbit", yawDeg: -38 };
+  if (camera === "rotate_right") cameraAction = { type: "camera.orbit", yawDeg: 38 };
+
+  return cameraAction
+    ? { type: "batch", atomic: true, actions: [focusAction, cameraAction] }
+    : focusAction;
+}
+
+function waitForVoiceViewer(
+  previousBridge?: Window["consentLoopViz"],
+  timeoutMs = 4_000,
+): Promise<NonNullable<Window["consentLoopViz"]>> {
+  return new Promise((resolve, reject) => {
+    const startedAt = performance.now();
+
+    const check = () => {
+      const bridge = window.consentLoopViz;
+      if (bridge && (!previousBridge || bridge !== previousBridge)) {
+        resolve(bridge);
+        return;
+      }
+      if (performance.now() - startedAt >= timeoutMs) {
+        reject(new Error("The interactive anatomy viewer did not become ready."));
+        return;
+      }
+      window.setTimeout(check, 50);
+    };
+
+    check();
+  });
+}
+
 export function ConsentLoopDemo() {
   const [activeView, setActiveView] = useState<JourneyView>("overview");
   const [railOpen, setRailOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
-  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+  const [voiceExpanded, setVoiceExpanded] = useState(false);
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("Patient dashboard loaded");
   const [anatomyState, setAnatomyState] = useState<AnatomyState | null>(null);
+  const [selectedOption, setSelectedOption] = useState<OptionId>("trim");
   const [preferences, setPreferences] = useState<Record<OptionId, Preference>>({
     therapy: null,
     trim: "preferred",
@@ -854,7 +932,12 @@ export function ConsentLoopDemo() {
     "tissue-treated": "understood",
     "risk-limitation": "not-discussed",
   });
-  const timers = useRef<number[]>([]);
+  const pendingVoiceMessage = useRef<string | null>(null);
+  const activeViewRef = useRef<JourneyView>("overview");
+  const voiceViewerBridgeRef = useRef<Window["consentLoopViz"]>(undefined);
+  const voiceViewerTransitionRef = useRef<
+    Promise<NonNullable<Window["consentLoopViz"]>> | null
+  >(null);
   const mainHeading = useRef<HTMLHeadingElement>(null);
 
   const currentIndex = navItems.findIndex((item) => item.id === activeView);
@@ -862,42 +945,162 @@ export function ConsentLoopDemo() {
   const copy = pageCopy[activeView];
 
   useEffect(() => {
-    return () => timers.current.forEach((timer) => window.clearTimeout(timer));
-  }, []);
-
-  useEffect(() => {
     mainHeading.current?.focus({ preventScroll: true });
   }, [activeView]);
 
   const navigate = (view: JourneyView) => {
+    const previousView = activeViewRef.current;
+    const previousBridge = window.consentLoopViz;
+    activeViewRef.current = view;
+
+    if (view === "anatomy" && previousView !== "anatomy") {
+      const transition = waitForVoiceViewer(previousBridge);
+      voiceViewerTransitionRef.current = transition;
+      void transition
+        .then((bridge) => {
+          if (
+            activeViewRef.current === "anatomy" &&
+            voiceViewerTransitionRef.current === transition
+          ) {
+            voiceViewerBridgeRef.current = bridge;
+          }
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (voiceViewerTransitionRef.current === transition) {
+            voiceViewerTransitionRef.current = null;
+          }
+        });
+    } else if (view !== "anatomy") {
+      voiceViewerBridgeRef.current = undefined;
+      voiceViewerTransitionRef.current = null;
+    }
+
     setActiveView(view);
     setRailOpen(false);
     setAnnouncement(`${pageCopy[view].title} view opened`);
   };
 
-  const runVoicePrompt = (prompt: string, command: AnatomyCommand) => {
-    timers.current.forEach((timer) => window.clearTimeout(timer));
-    setVoiceState("listening");
-    setAnnouncement(`Voice prompt: ${prompt}`);
-    timers.current = [
-      window.setTimeout(() => setVoiceState("thinking"), 550),
-      window.setTimeout(() => {
-        window.consentLoop3D?.execute(command);
-        setVoiceState("speaking");
-        setAnnouncement(`3D command applied for: ${prompt}`);
-      }, 1100),
-      window.setTimeout(() => setVoiceState("idle"), 2800),
-    ];
+  const executeVoiceVisualization = async (
+    action: VizAction,
+  ): Promise<VoiceToolExecutionResult> => {
+    if (activeViewRef.current !== "anatomy") {
+      navigate("anatomy");
+    }
+
+    const pendingBridge = voiceViewerTransitionRef.current;
+    const bridge = pendingBridge
+      ? await pendingBridge
+      : voiceViewerBridgeRef.current ??
+        window.consentLoopViz ??
+        await waitForVoiceViewer();
+    voiceViewerBridgeRef.current = bridge;
+
+    const command: VizCommandV1 = {
+      schema: "consentloop.viz-command.v1",
+      id: `voice-${crypto.randomUUID()}`,
+      issuedAt: new Date().toISOString(),
+      source: {
+        kind: "voice",
+        sessionId: patient.sessionId,
+      },
+      action,
+    };
+    const result = await bridge.execute(command);
+    if (result.status !== "completed") {
+      return { ok: false, error: result.message };
+    }
+    setAnnouncement("Voice guide updated the interactive anatomy");
+    return { ok: true, message: result.message };
   };
 
-  const toggleVoice = () => {
-    if (voiceState !== "idle") {
-      timers.current.forEach((timer) => window.clearTimeout(timer));
-      setVoiceState("idle");
-      setAnnouncement("Voice demo stopped");
-      return;
+  const handleVoiceToolCall = async (
+    call: VoiceToolCall,
+  ): Promise<VoiceToolExecutionResult> => {
+    switch (call.name) {
+      case "open_consent_section":
+        navigate(call.arguments.section);
+        return {
+          ok: true,
+          message: `${navItems.find((item) => item.id === call.arguments.section)?.label ?? "The requested"} section is open.`,
+        };
+      case "focus_anatomy":
+        return executeVoiceVisualization(
+          buildAnatomyVoiceAction(call.arguments.target, call.arguments.camera),
+        );
+      case "preview_procedure_step":
+        return executeVoiceVisualization({
+          type: "procedure.preview",
+          procedureId: "knee-arthroscopy",
+          stepId: call.arguments.step,
+          autoplay: false,
+        });
+      case "focus_option": {
+        setSelectedOption(call.arguments.option);
+        navigate("options");
+        const option = careOptions.find((item) => item.id === call.arguments.option);
+        return {
+          ok: true,
+          message: `${option?.title ?? "The requested option"} is in focus. No preference was recorded.`,
+        };
+      }
+      case "request_human": {
+        const destinationLabels = {
+          clinician: "care-team",
+          scheduler: "scheduling",
+          financial: "financial-counseling",
+        } as const;
+        const message = `A ${destinationLabels[call.arguments.destination]} handoff is ready to review. Nothing has been sent in this demo.`;
+        setVoiceExpanded(true);
+        setVoiceNotice(message);
+        setAnnouncement(message);
+        return { ok: true, message };
+      }
     }
-    runVoicePrompt("Show me the damaged part", { type: "set-stage", stage: "tear" });
+  };
+
+  const voice = useConsentVoiceAgent({ onToolCall: handleVoiceToolCall });
+  const voiceStatus = voice.status;
+  const sendVoiceText = voice.sendText;
+
+  useEffect(() => {
+    if (voiceStatus !== "listening" || !pendingVoiceMessage.current) return;
+    const message = pendingVoiceMessage.current;
+    const timer = window.setTimeout(() => {
+      if (sendVoiceText(message)) pendingVoiceMessage.current = null;
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [sendVoiceText, voiceStatus]);
+
+  const startVoice = async (withMicrophone = true) => {
+    setVoiceExpanded(true);
+    setVoiceNotice(null);
+    if (voice.status === "error") voice.stop();
+    await voice.start({ microphone: withMicrophone });
+  };
+
+  const stopVoice = () => {
+    pendingVoiceMessage.current = null;
+    voice.stop();
+    setVoiceNotice("Voice stopped. You can still use every control without speech.");
+    setAnnouncement("Voice guide stopped");
+  };
+
+  const sendVoiceMessage = (message: string) => {
+    const normalized = message.trim();
+    if (!normalized) return;
+    setVoiceExpanded(true);
+    setVoiceNotice(null);
+    if (voice.sendText(normalized)) return;
+    pendingVoiceMessage.current = normalized;
+    void startVoice(false);
+  };
+
+  const prepareHumanHelp = () => {
+    const message = "Human help is ready to review. This synthetic demo has not sent a request.";
+    setVoiceExpanded(true);
+    setVoiceNotice(message);
+    setAnnouncement(message);
   };
 
   const nextView = () => navigate(navItems[Math.min(navItems.length - 1, currentIndex + 1)].id);
@@ -907,6 +1110,34 @@ export function ConsentLoopDemo() {
     const id = (Object.entries(preferences) as Array<[OptionId, Preference]>).find(([, preference]) => preference === "preferred")?.[0];
     return id ? careOptions.find((option) => option.id === id)?.title : null;
   }, [preferences]);
+
+  const voiceTranscript = useMemo(
+    () =>
+      voice.transcript.map((entry) => ({
+        id: entry.id,
+        speaker: entry.role === "assistant" ? "guide" as const : "patient" as const,
+        text: entry.content,
+      })),
+    [voice.transcript],
+  );
+  const latestGuideLine = [...voice.transcript]
+    .reverse()
+    .find((entry) => entry.role === "assistant")?.content;
+  const voiceDockStatus: ConsentVoiceDockStatus =
+    voice.status === "reconnecting"
+      ? "connecting"
+      : voice.status === "listening" && voice.isActive && !voice.microphoneEnabled
+        ? "text"
+        : voice.status;
+  const voiceCaption =
+    voiceNotice ??
+    (voice.status === "reconnecting" ? "The connection paused. Reconnecting the guide…" : null) ??
+    voice.warning ??
+    (voice.microphoneMuted ? "Microphone paused. Resume it when you are ready." : null) ??
+    latestGuideLine ??
+    (!voice.microphoneEnabled && voice.isActive
+      ? "Microphone is off. Type a question or stop the guide."
+      : null);
 
   return (
     <div className={`consent-app ${darkMode ? "theme-dark" : ""}`}>
@@ -925,7 +1156,7 @@ export function ConsentLoopDemo() {
             <span>Journey progress</span><div><i style={{ width: `${progress}%` }} /></div><strong>{progress}%</strong>
           </div>
           <div className="header-actions">
-            <button className="help-button"><Headphones size={17} /><span>Ask for help</span></button>
+            <button className="help-button" onClick={prepareHumanHelp}><Headphones size={17} /><span>Ask for help</span></button>
             <button className="icon-button" aria-label="Search"><Search size={18} /></button>
             <button className="icon-button notification-button" aria-label="Notifications"><Bell size={18} /><i /></button>
             <button className="theme-toggle icon-button" onClick={() => setDarkMode(!darkMode)} aria-label={darkMode ? "Use light theme" : "Use dark theme"}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
@@ -973,8 +1204,8 @@ export function ConsentLoopDemo() {
 
           <div className="view-container">
             {activeView === "overview" && <OverviewView onNavigate={navigate} />}
-            {activeView === "anatomy" && <AnatomyView voiceState={voiceState} onPrompt={runVoicePrompt} onVoiceToggle={toggleVoice} anatomyState={anatomyState} onAnatomyState={setAnatomyState} />}
-            {activeView === "options" && <OptionsView preferences={preferences} onPreference={(option, preference) => setPreferences((current) => ({ ...current, [option]: current[option] === preference ? null : preference }))} />}
+            {activeView === "anatomy" && <AnatomyView anatomyState={anatomyState} onAnatomyState={setAnatomyState} onVoiceOpen={() => setVoiceExpanded(true)} onVoicePrompt={sendVoiceMessage} />}
+            {activeView === "options" && <OptionsView preferences={preferences} selected={selectedOption} onSelect={setSelectedOption} onPreference={(option, preference) => setPreferences((current) => ({ ...current, [option]: current[option] === preference ? null : preference }))} />}
             {activeView === "plan" && <PlanView />}
             {activeView === "costs" && <CostsView acknowledged={estimateAcknowledged} onAcknowledge={() => setEstimateAcknowledged((value) => !value)} />}
             {activeView === "teachback" && <TeachBackView statuses={conceptStatuses} onStatus={(id, status) => setConceptStatuses((current) => ({ ...current, [id]: status }))} />}
@@ -988,6 +1219,23 @@ export function ConsentLoopDemo() {
           </footer>
         </main>
       </div>
+      <ConsentVoiceDock
+        status={voiceDockStatus}
+        caption={voiceCaption}
+        transcript={voiceTranscript}
+        error={voice.error}
+        active={voice.isActive}
+        expanded={voiceExpanded}
+        muted={voice.outputMuted}
+        promptChips={voicePromptChips}
+        onStart={() => { void startVoice(); }}
+        onStop={stopVoice}
+        onToggleExpanded={() => setVoiceExpanded((value) => !value)}
+        onToggleMute={() => { voice.toggleOutput(); }}
+        onSendTyped={sendVoiceMessage}
+        onPrompt={sendVoiceMessage}
+        onHumanRequest={prepareHumanHelp}
+      />
       <div className="sr-only" aria-live="polite">{announcement}</div>
     </div>
   );
