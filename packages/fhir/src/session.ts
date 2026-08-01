@@ -199,6 +199,12 @@ export async function listConsentEvents(
   });
   const serviceRequest = serviceRequests[0];
   if (!serviceRequest?.id) return [];
+  const srRef = `ServiceRequest/${serviceRequest.id}`;
+
+  const tasks = await medplum.searchResources("Task", { focus: srRef, _count: 1 });
+  const educationTask = tasks[0];
+  if (!educationTask?.id) return [];
+  const taskRef = `Task/${educationTask.id}`;
 
   const provenance = (await medplum.searchResources("Provenance", {
     _tag: `${RUN_TAG.system}|${RUN_TAG.code}`,
@@ -206,11 +212,16 @@ export async function listConsentEvents(
     _count: 100,
   })) as Provenance[];
 
+  // Both bots always include the education Task in `target` — prepare-consent
+  // because it's the resource that was just created, assess-teachback because
+  // it's the resource every workflow-rule pass re-touches. Filtering on that
+  // one stable reference catches every event in the session (session
+  // creation, each teach-back evaluation, clinician escalation, activation),
+  // unlike filtering on `entity`, whose `derivedFromRef` points at whichever
+  // resource triggered that particular bot (ServiceRequest for one bot,
+  // QuestionnaireResponse for the other) and so never matches consistently.
   const relevant = provenance.filter((p) =>
-    p.entity?.some((e) =>
-      e.what?.reference === `ServiceRequest/${serviceRequest.id}`
-    ) ||
-    p.target?.some((t) => t.reference?.includes(serviceRequest.id!))
+    p.target?.some((t) => t.reference === taskRef)
   );
 
   const events: ConsentEvent[] = [];
