@@ -1,0 +1,29 @@
+{
+  "name": "consentloop-3d",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*",
+    "bots/*"
+  ],
+  "scripts": {
+    "seed": "tsx scripts/seed-demo.ts",
+    "reset": "tsx scripts/reset-demo.ts",
+    "create-order": "tsx scripts/create-service-request.ts",
+    "deploy:bots": "tsx scripts/deploy-bots.ts",
+    "setup:subscriptions": "tsx scripts/setup-subscriptions.ts",
+    "verify": "tsx scripts/verify-flow.ts",
+    "check-env": "tsx scripts/check-env.ts"
+  },
+  "dependencies": {
+    "@medplum/core": "^5.1.27",
+    "@medplum/fhirtypes": "^5.1.27",
+    "dotenv": "^17.4.2",
+    "tsx": "^4.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "esbuild": "^0.24.0",
+    "typescript": "^5"
+  }
+}

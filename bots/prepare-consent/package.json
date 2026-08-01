@@ -1,0 +1,12 @@
+{
+  "name": "@consentloop/bot-prepare-consent",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "dependencies": {
+    "@consentloop/fhir": "*",
+    "@consentloop/shared": "*",
+    "@medplum/core": "^5.1.27",
+    "@medplum/fhirtypes": "^5.1.27"
+  }
+}
