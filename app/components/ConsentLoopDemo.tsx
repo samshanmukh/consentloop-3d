@@ -66,6 +66,7 @@ import {
   useConsentVoiceAgent,
   type VoiceTranscriptEntry,
 } from "../hooks/useConsentVoiceAgent";
+import { useDeepgramDictation } from "../hooks/useDeepgramDictation";
 import {
   ConsentVoiceDock,
   type ConsentVoiceDockStatus,
@@ -884,6 +885,26 @@ function TeachBackView({
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<"idle" | "misconception" | "corrected" | "uncertain">("idle");
+  const dictation = useDeepgramDictation();
+  const dictationBaseRef = useRef("");
+
+  useEffect(() => {
+    if (!dictation.transcript) return;
+    const spokenAnswer = [dictationBaseRef.current, dictation.transcript]
+      .filter(Boolean)
+      .join(" ");
+    setAnswer(spokenAnswer);
+  }, [dictation.transcript]);
+
+  const toggleDictation = () => {
+    if (dictation.status === "connecting" || dictation.status === "listening") {
+      dictation.stop();
+      return;
+    }
+    if (dictation.status === "finalizing") return;
+    dictationBaseRef.current = answer.trim();
+    void dictation.start();
+  };
 
   const playTeachBackVisualization = async (
     stepId: "misconception-comparison" | "completion",
@@ -978,13 +999,36 @@ function TeachBackView({
             <button onClick={() => setAnswer("The surgeon is replacing my whole knee.")}>Use misconception</button>
             <button onClick={() => setAnswer("The surgeon may trim or repair the torn meniscus, not replace my whole knee.")}>Use corrected answer</button>
           </div>
-          <label className="answer-field">
-            <span>Your answer</span>
-            <textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="Type or speak your answer…" />
-            <button className="mic-inline" aria-label="Speak answer"><Mic size={18} /></button>
-          </label>
-          <button className="button button-primary" onClick={() => { void submitAnswer(); }} disabled={!answer.trim() || busy}>
-            {busy ? "Recording…" : "Check my explanation"} <ArrowRight size={17} />
+          <div className="answer-field">
+            <label htmlFor="teachback-answer">Your answer</label>
+            <textarea
+              id="teachback-answer"
+              value={answer}
+              onChange={(event) => {
+                if (dictation.isActive) dictation.stop();
+                setAnswer(event.target.value);
+              }}
+              placeholder="Type or speak your answer…"
+            />
+            <button
+              type="button"
+              className={`mic-inline${dictation.status === "listening" ? " is-listening" : ""}${dictation.status === "connecting" ? " is-connecting" : ""}`}
+              aria-label={dictation.isActive ? "Stop recording answer" : "Speak answer"}
+              aria-pressed={dictation.isActive}
+              onClick={toggleDictation}
+              disabled={busy || dictation.status === "finalizing"}
+            >
+              <Mic size={18} />
+            </button>
+          </div>
+          <div className={`dictation-status dictation-${dictation.status}`} role="status" aria-live="polite">
+            {dictation.status === "connecting" && "Connecting microphone…"}
+            {dictation.status === "listening" && "Listening… Speak your answer, then press the microphone again."}
+            {dictation.status === "finalizing" && "Finishing transcription…"}
+            {dictation.status === "error" && dictation.error}
+          </div>
+          <button className="button button-primary" onClick={() => { void submitAnswer(); }} disabled={!answer.trim() || busy || dictation.isActive}>
+            {busy ? "Checking…" : "Check my explanation"} <ArrowRight size={17} />
           </button>
           {feedback === "misconception" && (
             <div className="feedback-card feedback-warning" role="status">
