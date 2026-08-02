@@ -103,7 +103,7 @@ export type VoiceToolCall =
   | {
       id: string;
       name: "inspect_current_visual";
-      arguments: Record<string, never>;
+      arguments: { reference?: string };
     }
   | {
       id: string;
@@ -154,6 +154,21 @@ export interface VisibleStructureContext {
   whyItIsHighlighted: string;
 }
 
+export interface VisibleScenePartContext {
+  partId: string;
+  label: string;
+  visualColor: string;
+  active: boolean;
+  whatItIs: string;
+}
+
+export interface VisualReferenceResolution {
+  reference: string;
+  status: "matched" | "ambiguous" | "not-visible";
+  matchedPart: VisibleScenePartContext | null;
+  patientExplanation: string;
+}
+
 export interface CurrentVisualContext {
   viewerVisible: boolean;
   ready: boolean;
@@ -165,6 +180,8 @@ export interface CurrentVisualContext {
   damagedArea: string;
   primaryHighlight: VisibleStructureContext | null;
   visibleHighlights: VisibleStructureContext[];
+  visibleSceneParts: VisibleScenePartContext[];
+  referenceResolution: VisualReferenceResolution | null;
   visualMode: VisualMode | null;
   comparisonVisible: boolean;
   careTeamConfirmation: string;
@@ -386,15 +403,25 @@ export function normalizeVoiceToolCall(
       };
 
     case "inspect_current_visual":
-      if (!hasOnlyKeys(args, [])) {
-        return { ok: false, error: "Visual inspection does not accept arguments." };
+      if (
+        !hasOnlyKeys(args, ["reference"]) ||
+        (args.reference !== undefined &&
+          (typeof args.reference !== "string" ||
+            args.reference.trim().length === 0 ||
+            args.reference.length > 180))
+      ) {
+        return { ok: false, error: "Visual inspection reference is invalid." };
       }
       return {
         ok: true,
         call: {
           id: wireCall.id,
           name: wireCall.name,
-          arguments: {},
+          arguments: {
+            ...(typeof args.reference === "string"
+              ? { reference: args.reference.trim() }
+              : {}),
+          },
         },
       };
 
@@ -473,6 +500,52 @@ export function isFullProcedureWalkthroughRequest(content: string): boolean {
   );
 }
 
+/**
+ * Maps common patient language to an exact approved procedure destination.
+ * The visualization planner restores whole-body and knee prerequisites, so a
+ * request such as “show the possible treatment” lands on the requested scene
+ * instead of stopping at the right-knee overview.
+ */
+export function getRequestedProcedureDestination(
+  content: string,
+  id = `patient-destination-${Date.now()}`,
+): Extract<VisualizationVoiceToolCall, { name: "play_procedure_step" }> | null {
+  const normalized = content.trim().toLowerCase();
+  const procedureId = "knee-arthroscopy" as const;
+  let stepId: string | null = null;
+
+  if (
+    /\b(?:show|display|visualize|explain|take me to|go to)\b[\s\S]*\b(?:possible treatment|treatment action|treated area|repair|trim|trimmed|repaired)\b/u.test(normalized) ||
+    /\bwhat (?:might|may|could) be (?:trimmed|repaired|treated)\b/u.test(normalized)
+  ) {
+    stepId = "treatment-action";
+  } else if (
+    /\b(?:show|display|visualize|explain)\b[\s\S]*\b(?:damaged part|damage|tear|torn part)\b/u.test(normalized)
+  ) {
+    stepId = "damaged-structure";
+  } else if (
+    /\b(?:show|display|visualize|explain|how)\b[\s\S]*\b(?:camera|portal|access point|enter)\b/u.test(normalized)
+  ) {
+    stepId = "access-point";
+  } else if (
+    /\b(?:show|display|visualize|explain)\b[\s\S]*\b(?:risk|infection|incision)\b/u.test(normalized)
+  ) {
+    stepId = "important-risk";
+  } else if (
+    /\b(?:show|display|visualize|explain)\b[\s\S]*\b(?:expected result|after treatment|preserved tissue)\b/u.test(normalized)
+  ) {
+    stepId = "expected-result";
+  }
+
+  return stepId
+    ? {
+        id,
+        name: "play_procedure_step",
+        arguments: { procedureId, stepId },
+      }
+    : null;
+}
+
 export function isVisualizationVoiceToolCall(
   call: VoiceToolCall,
 ): call is VisualizationVoiceToolCall {
@@ -496,7 +569,7 @@ const structureVoiceFacts: Record<
   "meniscus-tear": {
     label: "torn meniscus area",
     whatItIs:
-      "This is the torn area of the right meniscus identified for the procedure discussion.",
+      "This is the torn area of the right meniscus identified for the procedure discussion. It is a meniscus tear, not a muscle tear.",
   },
   "cruciate-ligaments": {
     label: "cruciate ligaments",
@@ -540,13 +613,151 @@ function toVisibleStructureContext(
   color: HighlightColor,
 ): VisibleStructureContext {
   const facts = structureVoiceFacts[structureId];
+  const isRedTear = structureId === "meniscus-tear" && color === "red";
   return {
     structureId,
     label: facts.label,
     color,
-    colorDescription: highlightColorDescriptions[color],
+    colorDescription: isRedTear
+      ? "bright red, marking the torn meniscus area"
+      : highlightColorDescriptions[color],
     whatItIs: facts.whatItIs,
-    whyItIsHighlighted: highlightColorMeanings[color],
+    whyItIsHighlighted: isRedTear
+      ? "It is highlighted because this is the damaged meniscus area being discussed. The meniscus is cartilage-like cushioning tissue, not a muscle."
+      : highlightColorMeanings[color],
+  };
+}
+
+const detailedKneeSceneParts: readonly VisibleScenePartContext[] = [
+  {
+    partId: "femur",
+    label: "femur, or thigh bone",
+    visualColor: "ivory white",
+    active: false,
+    whatItIs: "The upper white bone is the femur, which forms the top of the knee joint.",
+  },
+  {
+    partId: "tibia-fibula",
+    label: "tibia and fibula",
+    visualColor: "ivory white",
+    active: false,
+    whatItIs: "The lower white bones are the tibia and fibula; the tibia carries most of the load through the knee.",
+  },
+  {
+    partId: "patella",
+    label: "patella, or kneecap",
+    visualColor: "ivory white",
+    active: false,
+    whatItIs: "The rounded white bone at the front is the patella, also called the kneecap.",
+  },
+  {
+    partId: "articular-cartilage",
+    label: "articular cartilage",
+    visualColor: "translucent cyan blue",
+    active: false,
+    whatItIs: "The translucent blue layer is smooth articular cartilage covering the joint surfaces.",
+  },
+  {
+    partId: "meniscus",
+    label: "meniscus",
+    visualColor: "deep red crescent tissue",
+    active: false,
+    whatItIs: "The red crescent-shaped tissue is the meniscus, which cushions the knee. It is not a muscle.",
+  },
+  {
+    partId: "cruciate-ligaments",
+    label: "ACL and PCL ligaments",
+    visualColor: "tan bands",
+    active: false,
+    whatItIs: "The central tan bands are the ACL and PCL, ligaments that help stabilize the knee.",
+  },
+  {
+    partId: "meniscus-tear",
+    label: "bright red meniscus tear marker",
+    visualColor: "bright red spot",
+    active: false,
+    whatItIs: "The bright red spot marks the torn area of the meniscus. It is a meniscus tear, not a muscle tear.",
+  },
+];
+
+function scenePartForHighlight(
+  highlight: VisibleStructureContext,
+): VisibleScenePartContext {
+  return {
+    partId: highlight.structureId,
+    label: highlight.label,
+    visualColor: highlight.colorDescription,
+    active: true,
+    whatItIs: `${highlight.whatItIs} ${highlight.whyItIsHighlighted}`,
+  };
+}
+
+function resolveVisualReference(
+  reference: string | undefined,
+  parts: readonly VisibleScenePartContext[],
+): VisualReferenceResolution | null {
+  const originalReference = reference?.trim();
+  if (!originalReference) return null;
+  const normalized = originalReference.toLowerCase();
+
+  const wantsRed = /\b(?:red|crimson|pink)\b/u.test(normalized);
+  const wantsOrange = /\b(?:orange|amber|yellow)\b/u.test(normalized);
+  const wantsBlue = /\b(?:blue|cyan|aqua)\b/u.test(normalized);
+  const wantsWhite = /\b(?:white|ivory|bone)\b/u.test(normalized);
+  const wantsTear = /\b(?:tear|torn|damage|damaged|broken|muscle)\b/u.test(normalized);
+  const wantsMeniscus = /\bmeniscus\b/u.test(normalized);
+  const wantsLigament = /\b(?:ligament|acl|pcl)\b/u.test(normalized);
+  const wantsCartilage = /\bcartilage\b/u.test(normalized);
+  const wantsKneecap = /\b(?:patella|kneecap)\b/u.test(normalized);
+  const wantsGenericPart = /\b(?:this|that|part|here)\b/u.test(normalized);
+
+  const scored = parts
+    .map((part) => {
+      const searchable = `${part.partId} ${part.label} ${part.visualColor} ${part.whatItIs}`.toLowerCase();
+      let score = 0;
+      if (wantsRed && /red|crimson|pink/u.test(part.visualColor)) score += 8;
+      if (wantsOrange && /orange|amber|yellow/u.test(part.visualColor)) score += 8;
+      if (wantsBlue && /blue|cyan|aqua/u.test(part.visualColor)) score += 8;
+      if (wantsWhite && /white|ivory/u.test(part.visualColor)) score += 8;
+      if (wantsTear && part.partId === "meniscus-tear") score += 12;
+      if (wantsMeniscus && /meniscus/u.test(searchable)) score += 7;
+      if (wantsLigament && /ligament|acl|pcl/u.test(searchable)) score += 10;
+      if (wantsCartilage && /cartilage/u.test(searchable)) score += 10;
+      if (wantsKneecap && /patella|kneecap/u.test(searchable)) score += 10;
+      if (score > 0 && part.active) score += 12;
+      if (score === 0 && wantsGenericPart && part.active) score += 6;
+      return { part, score };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score);
+
+  const first = scored[0];
+  if (!first) {
+    return {
+      reference: originalReference,
+      status: "not-visible",
+      matchedPart: null,
+      patientExplanation:
+        "I cannot identify that part from the current scene state. Please describe its color or name, or move to the step where it is highlighted.",
+    };
+  }
+
+  const tied = scored.filter(({ score }) => score === first.score);
+  if (tied.length > 1) {
+    const labels = tied.slice(0, 3).map(({ part }) => part.label).join(" and ");
+    return {
+      reference: originalReference,
+      status: "ambiguous",
+      matchedPart: null,
+      patientExplanation: `There is more than one matching part in view: ${labels}. The brighter red spot marks the meniscus tear; the darker red crescent is the meniscus tissue around it. Which one do you mean?`,
+    };
+  }
+
+  return {
+    reference: originalReference,
+    status: "matched",
+    matchedPart: first.part,
+    patientExplanation: first.part.whatItIs,
   };
 }
 
@@ -558,6 +769,7 @@ function toVisibleStructureContext(
 export function getCurrentVisualContext(
   snapshot: VisualizationSnapshot | null,
   viewerVisible = true,
+  reference?: string,
 ): CurrentVisualContext {
   const careTeamConfirmation =
     "The visualization follows the procedure plan prepared for this consent session. The care team confirms the final findings and treatment.";
@@ -575,6 +787,8 @@ export function getCurrentVisualContext(
         "The procedure discussion concerns a torn right meniscus, but no current highlight has been confirmed.",
       primaryHighlight: null,
       visibleHighlights: [],
+      visibleSceneParts: [],
+      referenceResolution: resolveVisualReference(reference, []),
       visualMode: null,
       comparisonVisible: false,
       careTeamConfirmation,
@@ -598,12 +812,43 @@ export function getCurrentVisualContext(
     visibleHighlights.unshift(toVisibleStructureContext("whole-knee", "red"));
   }
   const primaryHighlight = visibleHighlights.at(-1) ?? null;
+  const visibleSceneParts: VisibleScenePartContext[] = snapshot.viewMode === "knee"
+    ? detailedKneeSceneParts.map((part) => ({ ...part }))
+    : [
+        {
+          partId: "whole-body",
+          label: "whole-person anatomy",
+          visualColor: "translucent blue-gray",
+          active: snapshot.target === "body",
+          whatItIs: "The whole person is shown to orient the procedure to the right knee.",
+        },
+      ];
+  for (const highlight of visibleHighlights) {
+    const activePart = scenePartForHighlight(highlight);
+    const existingIndex = visibleSceneParts.findIndex(
+      (part) => part.partId === activePart.partId,
+    );
+    if (existingIndex >= 0) visibleSceneParts[existingIndex] = activePart;
+    else visibleSceneParts.push(activePart);
+  }
+  let referenceResolution = resolveVisualReference(reference, visibleSceneParts);
   const viewDescription = snapshot.viewMode === "body"
     ? "whole-person orientation view"
     : "detailed right-knee view";
   const highlightDescription = primaryHighlight
     ? ` The main highlight is the ${primaryHighlight.label}, shown ${primaryHighlight.colorDescription}.`
     : " No structure is currently highlighted.";
+  if (
+    reference &&
+    /\b(?:what (?:is|are) happening|what am i seeing|what is on (?:the )?screen|explain (?:this|the) (?:view|screen))\b/iu.test(reference)
+  ) {
+    referenceResolution = {
+      reference: reference.trim(),
+      status: "matched",
+      matchedPart: null,
+      patientExplanation: `${procedureStep?.narration ?? `The model is showing the ${viewDescription}.`}${highlightDescription}`,
+    };
+  }
 
   return {
     viewerVisible,
@@ -617,10 +862,12 @@ export function getCurrentVisualContext(
       "The model is providing anatomical orientation for the right-knee procedure discussion.",
     damagedArea:
       primaryHighlight?.structureId === "meniscus-tear"
-        ? "The orange or amber area is the torn part of the right meniscus. It can look yellow under the scene lighting."
+        ? "The bright red marker is the torn part of the right meniscus. The meniscus is cushioning tissue, not a muscle."
         : "The damaged structure described for this consent session is the torn right meniscus; it may not be the structure highlighted in the current step.",
     primaryHighlight,
     visibleHighlights,
+    visibleSceneParts,
+    referenceResolution,
     visualMode: snapshot.visualMode,
     comparisonVisible: snapshot.comparison,
     careTeamConfirmation,
@@ -1134,7 +1381,8 @@ ${costFacts}
 
 APPROVED VISUAL ANATOMY FACTS
 ${visualStructureFacts}
-- Orange or amber highlights can look yellow under the scene lighting. They indicate damaged tissue or tissue that may be treated; they never prove what final surgical action will occur.
+- The renderer uses a bright red spot for the meniscus tear, deeper red for surrounding meniscus tissue, ivory for bone, translucent cyan for cartilage, and tan for the ACL and PCL. Red can also mark an access-site risk or a whole-joint comparison in later steps, so always inspect the current scene before naming a red part.
+- Orange or amber highlights indicate tissue that may be treated; they never prove what final surgical action will occur.
 
 USING THE INTERFACE TOOLS
 - Function names and parameters are private interface controls, never patient-facing text. Invoke registered functions through native function calling only. Never speak or print a function name, JSON, braces, parameter object, pseudo-call, code block, or control instruction. If native function calling is unavailable, say the view could not be changed; never imitate a function call in text.
@@ -1142,9 +1390,10 @@ USING THE INTERFACE TOOLS
 - Use show_body_overview to show the whole person in front, back, left, right, or three-quarter view. Use focus_body_region with right-knee to request the visible knee-highlight destination.
 - Visual requests are destination-based. If the viewer is in another state, call the desired visual tool once; the application will safely restore the required whole-body, right-knee highlight, and detailed-knee prerequisites in order before returning success. Do not manually retry prerequisite tools after a successful response.
 - Use enter_procedure with knee-arthroscopy before beginning the detailed knee walkthrough. Use play_procedure_step only with an approved step for knee-arthroscopy: ${procedureStepIds.join(", ")}.
-- Use highlight_structure only for an approved structure: ${structureIds.join(", ")}. Use blue for orientation, orange for tissue that may be treated, faint red comparison only for the whole joint or a risk area, and green only for an explained/completed visual state.
+- Destination mapping is exact: “show the damaged part” means damaged-structure; camera, portal, or access questions mean access-point; “show the possible treatment,” “what might be trimmed,” repaired, treated area, or treatment action means treatment-action, which is detailed procedure stage 4; expected result means expected-result; incision, infection, or risk-area questions mean important-risk. Call the mapped play_procedure_step destination once—the application prepares prerequisites automatically.
+- Use highlight_structure only for an approved structure: ${structureIds.join(", ")}. Use blue for orientation, bright red for the confirmed tear marker, orange for tissue that may be treated, faint red for a whole-joint comparison or access-site risk, and green only for an explained/completed visual state.
 - Use set_visual_mode only when the explanation benefits from normal, transparent, xray, or isolated context. Use return_to_overview to pull back to the whole person after the explanation.
-- When the patient refers to the current picture with words such as “this,” “here,” “yellow part,” “orange part,” “what is broken,” “what is damaged,” or “what is happening,” ALWAYS call inspect_current_visual before answering. Its function result is the authoritative current scene. Answer the question directly from visualContext, mention the color and structure in plain language, and do not rely on an earlier remembered scene.
+- When the patient refers to the current picture with words such as “this,” “here,” “red part,” “yellow part,” “orange part,” “white part,” “blue part,” “muscle,” “bone,” “what is broken,” “what is damaged,” or “what is happening,” ALWAYS call inspect_current_visual and pass the patient's exact words in reference before answering. Its function result is the authoritative semantic scene graph. Speak referenceResolution.patientExplanation directly. If its status is ambiguous, explain the visible alternatives and ask which one they mean; never guess from color alone.
 - inspect_current_visual is read-only and may be called at any point. If visualContext.ready is false, say the model is not ready rather than guessing. If visualContext.viewerVisible is false, say you are describing the last reported anatomy scene and offer to reopen it.
 - Use focus_option to bring one option into focus, but still frame it neutrally and compare equally when asked.
 - Every visual function response is a transition barrier. Do not speak its step narration until the response says ok=true and settled.transitionCompleted=true. The response's narration.text is the single approved utterance; speak it exactly and do not invent visual findings.
@@ -1290,11 +1539,18 @@ export const voiceToolDefinitions = [
   {
     name: "inspect_current_visual",
     description:
-      "Read the exact current 3D scene, highlighted structure, color meaning, damaged area, and active procedure step. Always call before answering what this part is, what looks yellow or orange, what is damaged, or what is happening in the visible model. This tool does not change the scene.",
+      "Resolve the patient's exact visual reference against the current semantic 3D scene: visible bones, cartilage, meniscus, ligaments, tear marker, portals, active highlight, color meaning, and procedure step. Always call before answering what any visible part or color is. This tool does not change the scene.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      properties: {},
+      properties: {
+        reference: {
+          type: "string",
+          maxLength: 180,
+          description:
+            "The patient's exact visual phrase, for example 'what is this red part?' or 'is that a muscle tear?'",
+        },
+      },
       required: [],
     },
   },

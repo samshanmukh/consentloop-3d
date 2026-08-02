@@ -17,6 +17,7 @@ import {
   createConsentVoiceSessionConfig,
   createDeepgramTokenFactory,
   createVoiceNarrationBarrier,
+  getRequestedProcedureDestination,
   getVoiceFunctionProtocolErrors,
   isFullProcedureWalkthroughRequest,
   isVisualizationVoiceToolCall,
@@ -148,6 +149,10 @@ export function useConsentVoiceAgent({
     instruction: string;
   } | null>(null);
   const internalUserMessagesRef = useRef<Set<string>>(new Set());
+  const pendingDirectVisualCallRef = useRef<ReturnType<
+    typeof getRequestedProcedureDestination
+  >>(null);
+  const pendingVisualReferenceRef = useRef<string | null>(null);
   const toolExecutionQueueRef = useRef<Promise<void>>(Promise.resolve());
   const voiceNarrationBarrierRef = useRef(createVoiceNarrationBarrier());
   const callbacksRef = useRef({ onToolCall, onTranscript, onStatusChange });
@@ -184,6 +189,8 @@ export function useConsentVoiceAgent({
     autoWalkthroughRef.current = false;
     pendingWalkthroughContinuationRef.current = null;
     internalUserMessagesRef.current.clear();
+    pendingDirectVisualCallRef.current = null;
+    pendingVisualReferenceRef.current = null;
 
     microphone?.stop();
     session?.disconnect();
@@ -226,6 +233,26 @@ export function useConsentVoiceAgent({
     [],
   );
 
+  const applyPendingPatientIntent = useCallback((call: VoiceToolCall): VoiceToolCall => {
+    const directDestination = pendingDirectVisualCallRef.current;
+    if (directDestination) {
+      pendingDirectVisualCallRef.current = null;
+      return { ...directDestination, id: call.id };
+    }
+
+    if (call.name === "inspect_current_visual") {
+      const reference = call.arguments.reference ?? pendingVisualReferenceRef.current;
+      pendingVisualReferenceRef.current = null;
+      return {
+        ...call,
+        arguments: {
+          ...(reference ? { reference } : {}),
+        },
+      };
+    }
+    return call;
+  }, []);
+
   const executeFunctionCall = useCallback(
     async (
       session: AgentSession,
@@ -255,7 +282,8 @@ export function useConsentVoiceAgent({
         return;
       }
 
-      const visualizationCall = isVisualizationVoiceToolCall(normalized.call);
+      const patientGroundedCall = applyPendingPatientIntent(normalized.call);
+      const visualizationCall = isVisualizationVoiceToolCall(patientGroundedCall);
       if (visualizationCall) {
         // A model-generated visual call has already continued the sequence, so
         // cancel any client-side continuation that was waiting for narration.
@@ -266,7 +294,7 @@ export function useConsentVoiceAgent({
 
       let result: VoiceToolExecutionResult;
       try {
-        const handlerResult = await callbacksRef.current.onToolCall(normalized.call);
+        const handlerResult = await callbacksRef.current.onToolCall(patientGroundedCall);
         if (visualizationCall) {
           result = handlerResult?.ok && handlerResult.settled?.transitionCompleted
             ? handlerResult
@@ -278,7 +306,7 @@ export function useConsentVoiceAgent({
                     "The visualization did not confirm that its transition settled, so narration was paused.",
                 };
         } else {
-          result = handlerResult ?? defaultToolSuccess(normalized.call);
+          result = handlerResult ?? defaultToolSuccess(patientGroundedCall);
         }
       } catch (toolError) {
         result = { ok: false, error: friendlyError(toolError) };
@@ -319,7 +347,7 @@ export function useConsentVoiceAgent({
         setError(null);
       }
     },
-    [clearAudioDoneTimer],
+    [applyPendingPatientIntent, clearAudioDoneTimer],
   );
 
   const speakRecoveredLiteralCall = useCallback((session: AgentSession) => {
@@ -418,6 +446,11 @@ export function useConsentVoiceAgent({
           autoWalkthroughRef.current = isFullProcedureWalkthroughRequest(
             message.content,
           );
+          pendingDirectVisualCallRef.current = getRequestedProcedureDestination(
+            message.content,
+            `patient-destination-${transcriptCounterRef.current + 1}`,
+          );
+          pendingVisualReferenceRef.current = message.content.trim();
           if (!autoWalkthroughRef.current) {
             pendingWalkthroughContinuationRef.current = null;
           }
@@ -460,11 +493,22 @@ export function useConsentVoiceAgent({
                 return;
               }
 
+              const patientGroundedRecoveredCall = applyPendingPatientIntent(
+                recovered.call,
+              );
+              if (!isVisualizationVoiceToolCall(patientGroundedRecoveredCall)) {
+                literalRecoveryRef.current = null;
+                suppressAgentAudioRef.current = false;
+                return;
+              }
+
               await voiceNarrationBarrierRef.current.waitUntilReady();
               if (sessionRef.current !== session) return;
 
               try {
-                const handlerResult = await callbacksRef.current.onToolCall(recovered.call);
+                const handlerResult = await callbacksRef.current.onToolCall(
+                  patientGroundedRecoveredCall,
+                );
                 if (
                   !handlerResult?.ok ||
                   !handlerResult.settled?.transitionCompleted
@@ -523,6 +567,8 @@ export function useConsentVoiceAgent({
       literalRecoveryRef.current = null;
       autoWalkthroughRef.current = false;
       pendingWalkthroughContinuationRef.current = null;
+      pendingDirectVisualCallRef.current = null;
+      pendingVisualReferenceRef.current = null;
       updateStatus("listening");
     });
     session.on("agent-thinking", () => updateStatus("thinking"));
@@ -630,6 +676,7 @@ export function useConsentVoiceAgent({
     }
   }, [
     appendTranscript,
+    applyPendingPatientIntent,
     clearAudioDoneTimer,
     disposeSession,
     executeFunctionCall,
@@ -665,6 +712,11 @@ export function useConsentVoiceAgent({
     playerRef.current?.interrupt();
     autoWalkthroughRef.current = isFullProcedureWalkthroughRequest(normalized);
     pendingWalkthroughContinuationRef.current = null;
+    pendingDirectVisualCallRef.current = getRequestedProcedureDestination(
+      normalized,
+      `patient-destination-${transcriptCounterRef.current + 1}`,
+    );
+    pendingVisualReferenceRef.current = normalized;
     session.injectUserMessage(normalized);
     if (mountedRef.current) setError(null);
     updateStatus("thinking");

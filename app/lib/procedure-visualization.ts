@@ -183,7 +183,7 @@ export const kneeArthroscopyProcedure: ProcedureVisualization = {
         target: "tear",
         state: "procedure",
         visualMode: "isolated",
-        highlight: { structureId: "meniscus-tear", color: "orange" },
+        highlight: { structureId: "meniscus-tear", color: "red" },
       },
     }),
     step({

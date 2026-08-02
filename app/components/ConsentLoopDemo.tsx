@@ -1364,6 +1364,7 @@ export function ConsentLoopDemo() {
         const visualContext = getCurrentVisualContext(
           visualizationStateRef.current,
           activeViewRef.current === "anatomy",
+          call.arguments.reference,
         );
         return {
           ok: true,

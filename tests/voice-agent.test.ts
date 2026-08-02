@@ -9,6 +9,7 @@ import {
   createVoiceNarrationBarrier,
   getCurrentVisualContext,
   getNextApprovedVoiceAction,
+  getRequestedProcedureDestination,
   getVoiceFunctionProtocolErrors,
   getVoiceNarrationCue,
   getVoiceVisualizationSequenceError,
@@ -72,7 +73,8 @@ test("agent configuration is grounded and exposes client-side tools only", () =>
   assert.match(consentGuidePrompt, /settled\.transitionCompleted=true/);
   assert.match(consentGuidePrompt, /Visual requests are destination-based/);
   assert.match(consentGuidePrompt, /safely restore the required whole-body/);
-  assert.match(consentGuidePrompt, /ALWAYS call inspect_current_visual before answering/);
+  assert.match(consentGuidePrompt, /ALWAYS call inspect_current_visual[\s\S]*before answering/);
+  assert.match(consentGuidePrompt, /red part/);
   assert.match(consentGuidePrompt, /yellow part/);
   assert.match(consentGuidePrompt, /misconception comparison is optional/i);
   assert.match(consentGuidePrompt, /cannot update a clinical record/i);
@@ -328,7 +330,7 @@ test("misconception clarification auto-enters detail and preserves teach-back co
   );
 });
 
-test("visual inspection grounds yellow-part, damage, and current-action questions", () => {
+test("visual inspection grounds red-part, damage, and current-action questions", () => {
   const damaged = getCurrentVisualContext({
     ...initialVisualizationSnapshot,
     visualState: "procedure",
@@ -338,17 +340,22 @@ test("visual inspection grounds yellow-part, damage, and current-action question
     stage: "tear",
     target: "tear",
     visualMode: "isolated",
-    highlights: [{ structureId: "meniscus-tear", color: "orange" }],
+    highlights: [{ structureId: "meniscus-tear", color: "red" }],
     revision: 4,
-  });
+  }, true, "What is this red part—is that a muscle tear?");
 
   assert.equal(damaged.ready, true);
   assert.equal(damaged.viewMode, "knee");
   assert.equal(damaged.stepTitle, "Damaged meniscus");
   assert.equal(damaged.primaryHighlight?.structureId, "meniscus-tear");
-  assert.match(damaged.primaryHighlight?.colorDescription ?? "", /yellow/i);
+  assert.match(damaged.primaryHighlight?.colorDescription ?? "", /bright red/i);
   assert.match(damaged.primaryHighlight?.whatItIs ?? "", /torn area/i);
   assert.match(damaged.damagedArea, /torn part of the right meniscus/i);
+  assert.equal(damaged.referenceResolution?.status, "matched");
+  assert.equal(damaged.referenceResolution?.matchedPart?.partId, "meniscus-tear");
+  assert.match(damaged.referenceResolution?.patientExplanation ?? "", /not a muscle tear/i);
+  assert.ok(damaged.visibleSceneParts.some((part) => part.partId === "femur"));
+  assert.ok(damaged.visibleSceneParts.some((part) => part.partId === "articular-cartilage"));
   assert.equal(
     damaged.whatIsHappening,
     getProcedureStep("knee-arthroscopy", "damaged-structure")?.narration,
@@ -358,6 +365,55 @@ test("visual inspection grounds yellow-part, damage, and current-action question
     damaged.careTeamConfirmation,
     /educational|not patient-specific|not your actual record/i,
   );
+});
+
+test("red references follow the active scene instead of assuming every red part is the tear", () => {
+  const normal = getCurrentVisualContext({
+    ...initialVisualizationSnapshot,
+    visualState: "procedure",
+    viewMode: "knee",
+    procedureId: "knee-arthroscopy",
+    stepId: "normal-anatomy",
+    stage: "overview",
+    target: "knee",
+    revision: 3,
+  }, true, "What is the red part?");
+  assert.equal(normal.referenceResolution?.status, "ambiguous");
+  assert.match(normal.referenceResolution?.patientExplanation ?? "", /brighter red spot/i);
+
+  const risk = getCurrentVisualContext({
+    ...initialVisualizationSnapshot,
+    visualState: "procedure",
+    viewMode: "knee",
+    procedureId: "knee-arthroscopy",
+    stepId: "important-risk",
+    stage: "scope",
+    target: "portals",
+    highlights: [{ structureId: "incision-risk-area", color: "red" }],
+    revision: 8,
+  }, true, "What is this red part?");
+  assert.equal(risk.referenceResolution?.status, "matched");
+  assert.equal(risk.referenceResolution?.matchedPart?.partId, "incision-risk-area");
+  assert.match(risk.referenceResolution?.patientExplanation ?? "", /infection/i);
+});
+
+test("patient procedure language resolves to the exact approved visual destination", () => {
+  const treatment = getRequestedProcedureDestination("Show me the possible treatment");
+  assert.equal(treatment?.name, "play_procedure_step");
+  assert.equal(treatment?.arguments.stepId, "treatment-action");
+  assert.equal(
+    getRequestedProcedureDestination("What might be trimmed?")?.arguments.stepId,
+    "treatment-action",
+  );
+  assert.equal(
+    getRequestedProcedureDestination("Show me how the camera enters")?.arguments.stepId,
+    "access-point",
+  );
+  assert.equal(
+    getRequestedProcedureDestination("Show the damaged part")?.arguments.stepId,
+    "damaged-structure",
+  );
+  assert.equal(getRequestedProcedureDestination("Compare my treatment options"), null);
 });
 
 test("visual inspection reflects only genuinely visible highlights", () => {
@@ -627,6 +683,22 @@ test("nonvisual tool calls retain strict normalization", () => {
         id: "call-1",
         name: "inspect_current_visual",
         arguments: {},
+      },
+    },
+  );
+
+  assert.deepEqual(
+    normalizeVoiceToolCall(
+      wireCall("inspect_current_visual", {
+        reference: "What is this red part?",
+      }),
+    ),
+    {
+      ok: true,
+      call: {
+        id: "call-1",
+        name: "inspect_current_visual",
+        arguments: { reference: "What is this red part?" },
       },
     },
   );
