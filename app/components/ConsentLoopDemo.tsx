@@ -356,7 +356,8 @@ function VoiceGuidePanel({
       </div>
       <p className="voice-caption">
         The guide can explain this synthetic case, open any consent step, and
-        focus approved anatomy. It cannot recommend a treatment or record consent.
+        focus approved anatomy. It can record a preference you explicitly state,
+        but it cannot recommend a treatment or record consent.
       </p>
       <div className="prompt-list">
         {prompts.map((prompt) => (
@@ -1429,6 +1430,20 @@ export function ConsentLoopDemo() {
           ok: true,
           message: `${option?.title ?? "The requested option"} is in focus. No preference was recorded.`,
         };
+      }
+      case "record_option_preference": {
+        const option = careOptions.find((item) => item.id === call.arguments.option);
+        const preferenceLabel = preferenceLabels[call.arguments.preference];
+        setSelectedOption(call.arguments.option);
+        setPreferences((current) => ({
+          ...current,
+          [call.arguments.option]: call.arguments.preference,
+        }));
+        navigate("options");
+        const message = `${option?.title ?? "The requested option"} is now marked ${preferenceLabel.toLowerCase()}. This records your preference for the consent discussion; it is not consent or a scheduled treatment.`;
+        setVoiceNotice(message);
+        setAnnouncement(message);
+        return { ok: true, message };
       }
       case "request_human": {
         const destinationLabels = {

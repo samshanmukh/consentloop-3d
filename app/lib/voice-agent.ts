@@ -13,6 +13,7 @@ import {
   timeline,
   type JourneyView,
   type OptionId,
+  type Preference,
 } from "./demo-data";
 import {
   bodyRegionIds,
@@ -50,6 +51,7 @@ export const voiceToolNames = [
   ...visualizationVoiceToolNames,
   "inspect_current_visual",
   "focus_option",
+  "record_option_preference",
   "request_human",
 ] as const;
 
@@ -109,6 +111,15 @@ export type VoiceToolCall =
       id: string;
       name: "focus_option";
       arguments: { option: OptionId };
+    }
+  | {
+      id: string;
+      name: "record_option_preference";
+      arguments: {
+        option: OptionId;
+        preference: Exclude<Preference, null>;
+        confirmed_by_user: true;
+      };
     }
   | {
       id: string;
@@ -230,6 +241,7 @@ const journeyViews: readonly JourneyView[] = [
 ];
 
 const optionIds: readonly OptionId[] = ["therapy", "trim", "repair"];
+const optionPreferenceValues = ["preferred", "unsure", "not-preferred"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -435,6 +447,31 @@ export function normalizeVoiceToolCall(
           id: wireCall.id,
           name: wireCall.name,
           arguments: { option: args.option },
+        },
+      };
+
+    case "record_option_preference":
+      if (
+        !hasOnlyKeys(args, ["option", "preference", "confirmed_by_user"]) ||
+        !isMember(args.option, optionIds) ||
+        !isMember(args.preference, optionPreferenceValues) ||
+        args.confirmed_by_user !== true
+      ) {
+        return {
+          ok: false,
+          error: "An explicit, valid patient preference is required.",
+        };
+      }
+      return {
+        ok: true,
+        call: {
+          id: wireCall.id,
+          name: wireCall.name,
+          arguments: {
+            option: args.option,
+            preference: args.preference,
+            confirmed_by_user: true,
+          },
         },
       };
 
@@ -1352,7 +1389,7 @@ export const consentGuidePrompt = `You are ConsentLoop Guide, a calm patient-fac
 
 ROLE AND HARD BOUNDARIES
 - Explain only the consent-session facts below. Do not diagnose, assess symptoms, recommend or rank a treatment, invent facts, make a clinical decision, or replace ${patient.clinician} and the care team.
-- A recorded preference is not consent, not a prescription, and not a scheduled treatment. Never say the patient has consented. Never sign, acknowledge, schedule, or change a record for the patient.
+- A recorded preference is not consent, not a prescription, and not a scheduled treatment. Never say the patient has consented. Never sign, acknowledge, schedule, or alter a clinical decision. You may record only a preference the patient directly states or confirms, using record_option_preference.
 - Present this as the patient's current consent experience without product-status commentary. Do not volunteer implementation or data-provenance disclaimers.
 - Do not claim a live-record connection, confirmed diagnosis, final surgical finding, or guaranteed price unless a tool explicitly confirms it. If asked about provenance, say: “This is the information prepared for your consent session; your care team can confirm its source and current status.”
 - When visual precision matters, say exactly: “The visualization shows the procedure plan; your care team confirms the final findings and treatment.” Do not add another disclaimer.
@@ -1396,6 +1433,7 @@ USING THE INTERFACE TOOLS
 - When the patient refers to the current picture with words such as “this,” “here,” “red part,” “yellow part,” “orange part,” “white part,” “blue part,” “muscle,” “bone,” “what is broken,” “what is damaged,” or “what is happening,” ALWAYS call inspect_current_visual and pass the patient's exact words in reference before answering. Its function result is the authoritative semantic scene graph. Speak referenceResolution.patientExplanation directly. If its status is ambiguous, explain the visible alternatives and ask which one they mean; never guess from color alone.
 - inspect_current_visual is read-only and may be called at any point. If visualContext.ready is false, say the model is not ready rather than guessing. If visualContext.viewerVisible is false, say you are describing the last reported anatomy scene and offer to reopen it.
 - Use focus_option to bring one option into focus, but still frame it neutrally and compare equally when asked.
+- When the patient directly says to mark, set, record, or change an option to preferred, unsure, or not preferred, call record_option_preference. A direct command such as “Set physical therapy to not preferred” counts as confirmation. Map physical therapy or PT to therapy, possible trim to trim, and possible repair to repair. Never infer a preference from a question, a request to view an option, or a vague positive or negative remark. After success, state the recorded option and preference and remind the patient that this is not consent.
 - Every visual function response is a transition barrier. Do not speak its step narration until the response says ok=true and settled.transitionCompleted=true. The response's narration.text is the single approved utterance; speak it exactly and do not invent visual findings.
 - Issue exactly ONE visual function per function-call request. Never batch visual functions or request the next visual while the prior function is pending. One destination request may internally prepare several safe scene prerequisites; wait for the single response, then describe only its final settled scene. During the full narrated walkthrough, keep using the numbered actions in order.
 - If a visual tool fails, do not request a later walkthrough action. Say the view could not be changed and continue verbally or offer on-screen controls.
@@ -1565,6 +1603,30 @@ export const voiceToolDefinitions = [
         option: { type: "string", enum: optionIds },
       },
       required: ["option"],
+    },
+  },
+  {
+    name: "record_option_preference",
+    description:
+      "Record a preference in the consent-session UI only when the patient directly states or confirms the option and preference. This is not consent and must never be inferred.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        option: {
+          type: "string",
+          enum: optionIds,
+          description:
+            "therapy means physical therapy; trim means arthroscopy with possible trim; repair means arthroscopy with possible repair.",
+        },
+        preference: { type: "string", enum: optionPreferenceValues },
+        confirmed_by_user: {
+          type: "boolean",
+          description:
+            "Must be true only when the patient directly stated or confirmed this preference.",
+        },
+      },
+      required: ["option", "preference", "confirmed_by_user"],
     },
   },
   {

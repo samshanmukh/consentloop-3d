@@ -103,6 +103,7 @@ function defaultToolSuccess(call: VoiceToolCall): VoiceToolExecutionResult {
     return_to_overview: "The visualization returned to the whole-body overview.",
     inspect_current_visual: "The current visualization context is ready to explain.",
     focus_option: "The requested option is now in focus; no preference was recorded.",
+    record_option_preference: "The patient's explicit option preference is now recorded in the consent-session UI.",
     request_human: "The confirmed handoff request is ready for the patient to review.",
   };
   return { ok: true, message: messages[call.name] };

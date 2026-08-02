@@ -54,6 +54,8 @@ test("agent configuration is grounded and exposes client-side tools only", () =>
   assert.match(consentGuidePrompt, /\$2,045–\$3,120/);
   assert.match(consentGuidePrompt, /Do not diagnose/);
   assert.match(consentGuidePrompt, /preference is not consent/i);
+  assert.match(consentGuidePrompt, /Set physical therapy to not preferred/i);
+  assert.match(consentGuidePrompt, /Never infer a preference/i);
   assert.match(consentGuidePrompt, /Present every available option with equal weight/);
   assert.match(consentGuidePrompt, /current consent experience/i);
   assert.match(consentGuidePrompt, /information prepared for your consent session/i);
@@ -719,6 +721,28 @@ test("nonvisual tool calls retain strict normalization", () => {
 
   assert.deepEqual(
     normalizeVoiceToolCall(
+      wireCall("record_option_preference", {
+        option: "therapy",
+        preference: "not-preferred",
+        confirmed_by_user: true,
+      }),
+    ),
+    {
+      ok: true,
+      call: {
+        id: "call-1",
+        name: "record_option_preference",
+        arguments: {
+          option: "therapy",
+          preference: "not-preferred",
+          confirmed_by_user: true,
+        },
+      },
+    },
+  );
+
+  assert.deepEqual(
+    normalizeVoiceToolCall(
       wireCall("request_human", {
         destination: "clinician",
         reason: "I still have a question",
@@ -819,6 +843,26 @@ test("tool calls reject malformed, ungrounded, or unconfirmed actions", () => {
   assert.equal(
     normalizeVoiceToolCall(
       wireCall("focus_option", { option: "trim", selected: true }),
+    ).ok,
+    false,
+  );
+  assert.equal(
+    normalizeVoiceToolCall(
+      wireCall("record_option_preference", {
+        option: "therapy",
+        preference: "not-preferred",
+        confirmed_by_user: false,
+      }),
+    ).ok,
+    false,
+  );
+  assert.equal(
+    normalizeVoiceToolCall(
+      wireCall("record_option_preference", {
+        option: "therapy",
+        preference: "avoid",
+        confirmed_by_user: true,
+      }),
     ).ok,
     false,
   );
