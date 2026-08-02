@@ -56,6 +56,7 @@ import {
   getNextApprovedVoiceAction,
   getVoiceNarrationCue,
   isVisualizationVoiceToolCall,
+  kneeArthroscopyVoiceWalkthrough,
   planVoiceVisualizationCommands,
   type VoiceToolCall,
   type VoiceToolExecutionResult,
@@ -395,12 +396,14 @@ function ConsentVisualizationStatus({
   const currentStep = kneeArthroscopyProcedure.steps.find(
     (procedureStep) => procedureStep.id === visualization?.stepId,
   );
-  const currentStepIndex = Math.max(
-    0,
-    kneeArthroscopyProcedure.steps.findIndex(
-      (procedureStep) => procedureStep.id === visualization?.stepId,
-    ),
+  const walkthroughStepIndex = kneeArthroscopyVoiceWalkthrough.findIndex(
+    (action) => action.stepId === visualization?.stepId,
   );
+  const walkthroughStepNumber =
+    visualization?.stepId === "completion"
+      ? kneeArthroscopyVoiceWalkthrough.length
+      : Math.max(0, walkthroughStepIndex) + 1;
+  const walkthroughStepCount = kneeArthroscopyVoiceWalkthrough.length;
   const teachBackStatus = workflow.concepts["tissue-treated"].status;
 
   return (
@@ -438,9 +441,9 @@ function ConsentVisualizationStatus({
         </article>
       </div>
 
-      <div className="workflow-step-progress" aria-label={`Visualization step ${currentStepIndex + 1} of ${kneeArthroscopyProcedure.steps.length}`}>
-        <div><span>Approved walkthrough</span><strong>{currentStepIndex + 1} / {kneeArthroscopyProcedure.steps.length}</strong></div>
-        <i><span style={{ width: `${((currentStepIndex + 1) / kneeArthroscopyProcedure.steps.length) * 100}%` }} /></i>
+      <div className="workflow-step-progress" aria-label={`Visualization step ${walkthroughStepNumber} of ${walkthroughStepCount}`}>
+        <div><span>Approved walkthrough</span><strong>{walkthroughStepNumber} / {walkthroughStepCount}</strong></div>
+        <i><span style={{ width: `${(walkthroughStepNumber / walkthroughStepCount) * 100}%` }} /></i>
       </div>
 
       <dl className="workflow-detail-list">

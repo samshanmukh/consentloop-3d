@@ -229,7 +229,7 @@ export const kneeArthroscopyProcedure: ProcedureVisualization = {
       id: "important-risk",
       title: "Important risk area",
       narration:
-        "The small access sites can have risks such as infection. This illustration is educational and not a patient-specific prediction.",
+        "The small access sites can have risks such as infection. Your care team can explain how they reduce and monitor this risk.",
       requiredConceptId: "risk-limitation",
       render: {
         stage: "scope",

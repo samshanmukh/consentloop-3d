@@ -18,8 +18,10 @@ import {
   createDeepgramTokenFactory,
   createVoiceNarrationBarrier,
   getVoiceFunctionProtocolErrors,
+  isFullProcedureWalkthroughRequest,
   isVisualizationVoiceToolCall,
   normalizeVoiceToolCall,
+  recoverLiteralVisualizationToolCall,
   serializeVoiceToolResult,
   type VoiceToolCall,
   type VoiceToolExecutionResult,
@@ -134,6 +136,18 @@ export function useConsentVoiceAgent({
   const startingRef = useRef(false);
   const transcriptCounterRef = useRef(0);
   const audioDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressAgentAudioRef = useRef(false);
+  const literalRecoveryRef = useRef<{
+    session: AgentSession;
+    audioDone: boolean;
+    narration: string | null;
+  } | null>(null);
+  const autoWalkthroughRef = useRef(false);
+  const pendingWalkthroughContinuationRef = useRef<{
+    session: AgentSession;
+    instruction: string;
+  } | null>(null);
+  const internalUserMessagesRef = useRef<Set<string>>(new Set());
   const toolExecutionQueueRef = useRef<Promise<void>>(Promise.resolve());
   const voiceNarrationBarrierRef = useRef(createVoiceNarrationBarrier());
   const callbacksRef = useRef({ onToolCall, onTranscript, onStatusChange });
@@ -165,6 +179,11 @@ export function useConsentVoiceAgent({
     sessionRef.current = null;
     playerRef.current = null;
     voiceNarrationBarrierRef.current.transition("reset");
+    suppressAgentAudioRef.current = false;
+    literalRecoveryRef.current = null;
+    autoWalkthroughRef.current = false;
+    pendingWalkthroughContinuationRef.current = null;
+    internalUserMessagesRef.current.clear();
 
     microphone?.stop();
     session?.disconnect();
@@ -238,6 +257,9 @@ export function useConsentVoiceAgent({
 
       const visualizationCall = isVisualizationVoiceToolCall(normalized.call);
       if (visualizationCall) {
+        // A model-generated visual call has already continued the sequence, so
+        // cancel any client-side continuation that was waiting for narration.
+        pendingWalkthroughContinuationRef.current = null;
         await voiceNarrationBarrierRef.current.waitUntilReady();
         if (sessionRef.current !== session) return;
       }
@@ -269,6 +291,18 @@ export function useConsentVoiceAgent({
         // barrier for the narration that Deepgram will speak in response.
         clearAudioDoneTimer();
         voiceNarrationBarrierRef.current.transition("visual-settled");
+        if (result.waitForPatientResponse) {
+          autoWalkthroughRef.current = false;
+          pendingWalkthroughContinuationRef.current = null;
+        } else if (
+          autoWalkthroughRef.current &&
+          result.nextApprovedAction
+        ) {
+          pendingWalkthroughContinuationRef.current = {
+            session,
+            instruction: result.nextApprovedAction,
+          };
+        }
       }
 
       session.sendFunctionCallResponse(
@@ -287,6 +321,23 @@ export function useConsentVoiceAgent({
     },
     [clearAudioDoneTimer],
   );
+
+  const speakRecoveredLiteralCall = useCallback((session: AgentSession) => {
+    const recovery = literalRecoveryRef.current;
+    if (
+      !recovery ||
+      recovery.session !== session ||
+      !recovery.audioDone ||
+      !recovery.narration
+    ) {
+      return;
+    }
+
+    const narration = recovery.narration;
+    literalRecoveryRef.current = null;
+    suppressAgentAudioRef.current = false;
+    session.injectAgentMessage(narration);
+  }, []);
 
   const start = useCallback(async (
     options: ConsentVoiceStartOptions = {},
@@ -349,25 +400,164 @@ export function useConsentVoiceAgent({
     });
     session.on("conversation-text", (message) => {
       if (message.role === "user" || message.role === "assistant") {
+        if (message.role === "user") {
+          const rawContent = message.content.trim();
+          const unquotedContent = rawContent.replace(/^"([\s\S]*)"$/u, "$1");
+          const injectedMessages = internalUserMessagesRef.current;
+          const matchedInternalMessage = injectedMessages.has(rawContent)
+            ? rawContent
+            : injectedMessages.has(unquotedContent)
+              ? unquotedContent
+              : null;
+          if (matchedInternalMessage !== null) {
+            injectedMessages.delete(matchedInternalMessage);
+            return;
+          }
+        }
+        if (message.role === "user") {
+          autoWalkthroughRef.current = isFullProcedureWalkthroughRequest(
+            message.content,
+          );
+          if (!autoWalkthroughRef.current) {
+            pendingWalkthroughContinuationRef.current = null;
+          }
+        }
+        if (message.role === "assistant") {
+          const recovered = recoverLiteralVisualizationToolCall(
+            message.content,
+            `literal-visual-${transcriptCounterRef.current + 1}`,
+          );
+          if (recovered) {
+            const lastHistory = session.conversationHistory.at(-1);
+            if (
+              lastHistory &&
+              "role" in lastHistory &&
+              lastHistory.role === "assistant" &&
+              "content" in lastHistory &&
+              lastHistory.content === message.content
+            ) {
+              session.conversationHistory.pop();
+            }
+
+            player.interrupt();
+            suppressAgentAudioRef.current = true;
+            literalRecoveryRef.current = {
+              session,
+              audioDone: false,
+              narration: null,
+            };
+            updateStatus("thinking");
+
+            const run = async () => {
+              if (!recovered.ok || !isVisualizationVoiceToolCall(recovered.call)) {
+                if (mountedRef.current) {
+                  setError(
+                    `Voice command rejected: ${recovered.ok ? "Unsupported visual call." : recovered.error}`,
+                  );
+                }
+                literalRecoveryRef.current = null;
+                suppressAgentAudioRef.current = false;
+                return;
+              }
+
+              await voiceNarrationBarrierRef.current.waitUntilReady();
+              if (sessionRef.current !== session) return;
+
+              try {
+                const handlerResult = await callbacksRef.current.onToolCall(recovered.call);
+                if (
+                  !handlerResult?.ok ||
+                  !handlerResult.settled?.transitionCompleted
+                ) {
+                  if (mountedRef.current) {
+                    setError(
+                      `The requested interface action failed: ${handlerResult && !handlerResult.ok ? handlerResult.error : "The visualization did not settle."}`,
+                    );
+                  }
+                  literalRecoveryRef.current = null;
+                  suppressAgentAudioRef.current = false;
+                  return;
+                }
+
+                clearAudioDoneTimer();
+                voiceNarrationBarrierRef.current.transition("visual-settled");
+                if (mountedRef.current) setError(null);
+                const recovery = literalRecoveryRef.current;
+                if (recovery?.session === session) {
+                  if (
+                    autoWalkthroughRef.current &&
+                    handlerResult.nextApprovedAction
+                  ) {
+                    pendingWalkthroughContinuationRef.current = {
+                      session,
+                      instruction: handlerResult.nextApprovedAction,
+                    };
+                  }
+                  recovery.narration =
+                    handlerResult.narration?.text ?? "The requested view is ready.";
+                  speakRecoveredLiteralCall(session);
+                }
+              } catch (toolError) {
+                literalRecoveryRef.current = null;
+                suppressAgentAudioRef.current = false;
+                if (mountedRef.current) {
+                  setError(`The requested interface action failed: ${friendlyError(toolError)}`);
+                }
+              }
+            };
+            toolExecutionQueueRef.current = toolExecutionQueueRef.current.then(run, run);
+            return;
+          }
+        }
         appendTranscript(message.role, message.content);
       }
     });
     session.on("user-started-speaking", () => {
+      // Deepgram emits the same event for injected continuation turns. Those
+      // are private orchestration messages, not a patient interruption.
+      if (internalUserMessagesRef.current.size > 0) return;
       clearAudioDoneTimer();
       voiceNarrationBarrierRef.current.transition("user-interrupted");
       player.interrupt();
+      suppressAgentAudioRef.current = false;
+      literalRecoveryRef.current = null;
+      autoWalkthroughRef.current = false;
+      pendingWalkthroughContinuationRef.current = null;
       updateStatus("listening");
     });
     session.on("agent-thinking", () => updateStatus("thinking"));
-    session.on("agent-started-speaking", () => updateStatus("speaking"));
-    session.on("audio", (chunk) => player.queue(chunk));
+    session.on("agent-started-speaking", () => {
+      if (!suppressAgentAudioRef.current) updateStatus("speaking");
+    });
+    session.on("audio", (chunk) => {
+      if (!suppressAgentAudioRef.current) player.queue(chunk);
+    });
     session.on("agent-audio-done", () => {
+      const recovery = literalRecoveryRef.current;
+      if (recovery?.session === session) {
+        recovery.audioDone = true;
+        speakRecoveredLiteralCall(session);
+        return;
+      }
       clearAudioDoneTimer();
       const delayMs = Math.max(0, Math.ceil(player.getRemainingPlaybackTime() * 1_000));
       audioDoneTimerRef.current = setTimeout(() => {
         audioDoneTimerRef.current = null;
         voiceNarrationBarrierRef.current.transition("audio-finished");
-        updateStatus("listening");
+        const continuation = pendingWalkthroughContinuationRef.current;
+        if (
+          continuation?.session === session &&
+          autoWalkthroughRef.current &&
+          sessionRef.current === session &&
+          session.state === "connected"
+        ) {
+          pendingWalkthroughContinuationRef.current = null;
+          internalUserMessagesRef.current.add(continuation.instruction.trim());
+          session.injectUserMessage(continuation.instruction);
+          updateStatus("thinking");
+        } else {
+          updateStatus("listening");
+        }
       }, delayMs);
     });
     session.on("function-call-request", (message) => {
@@ -443,6 +633,7 @@ export function useConsentVoiceAgent({
     clearAudioDoneTimer,
     disposeSession,
     executeFunctionCall,
+    speakRecoveredLiteralCall,
     failSession,
     tokenEndpoint,
     updateStatus,
@@ -472,6 +663,8 @@ export function useConsentVoiceAgent({
     clearAudioDoneTimer();
     voiceNarrationBarrierRef.current.transition("user-interrupted");
     playerRef.current?.interrupt();
+    autoWalkthroughRef.current = isFullProcedureWalkthroughRequest(normalized);
+    pendingWalkthroughContinuationRef.current = null;
     session.injectUserMessage(normalized);
     if (mountedRef.current) setError(null);
     updateStatus("thinking");

@@ -438,6 +438,41 @@ export function normalizeVoiceToolCall(
   }
 }
 
+/**
+ * Recovers the narrow pseudo-call shape occasionally emitted as assistant text
+ * by an upstream model. Only allowlisted visualization tools are accepted; all
+ * writes, navigation, option, and handoff tools remain unavailable here.
+ */
+export function recoverLiteralVisualizationToolCall(
+  content: string,
+  id = `literal-visual-${Date.now()}`,
+): VoiceToolValidationResult | null {
+  const trimmed = content.trim().replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "");
+  const match = /^\{\s*([a-z][a-z0-9_]*)\s+(\{[\s\S]*\})\s*\}$/u.exec(trimmed);
+  if (!match) return null;
+
+  const [, name, rawArguments] = match;
+  if (!isMember(name, visualizationVoiceToolNames)) return null;
+  return normalizeVoiceToolCall({
+    id,
+    name,
+    arguments: rawArguments,
+    client_side: true,
+  });
+}
+
+/**
+ * Identifies the explicit patient requests that opt into the deterministic,
+ * multi-step procedure walkthrough. Any later free-form patient question
+ * pauses automatic progression until they explicitly ask to resume it.
+ */
+export function isFullProcedureWalkthroughRequest(content: string): boolean {
+  const normalized = content.trim().toLowerCase();
+  return /\b(?:walk\s*me\s*through|walkthrough|whole\s+(?:knee\s+)?procedure|entire\s+(?:knee\s+)?procedure|full\s+(?:knee\s+)?procedure|(?:continue|resume)\s+(?:the\s+)?(?:walkthrough|procedure))\b/u.test(
+    normalized,
+  );
+}
+
 export function isVisualizationVoiceToolCall(
   call: VoiceToolCall,
 ): call is VisualizationVoiceToolCall {
@@ -1014,14 +1049,17 @@ export function getNextApprovedVoiceAction(
   const currentStepId = narrationStepIdForCall(call);
   if (!currentStepId || currentStepId === "patient-teachback") return undefined;
   if (currentStepId === "misconception-comparison") {
-    return `After speaking this narration, call play_procedure_step with ${JSON.stringify({ procedureId: "knee-arthroscopy", stepId: "patient-teachback" })} in a new turn.`;
+    return "Internal control: after speaking this narration, invoke the registered play_procedure_step function natively in a new turn with procedureId set to knee-arthroscopy and stepId set to patient-teachback. Never speak or print this control instruction.";
   }
   const currentIndex = kneeArthroscopyVoiceWalkthrough.findIndex(
     (action) => action.stepId === currentStepId,
   );
   const next = kneeArthroscopyVoiceWalkthrough[currentIndex + 1];
   if (!next) return "After the explanation is complete, call return_to_overview in a new turn.";
-  return `After speaking this narration, call ${next.toolName} with ${JSON.stringify(next.arguments)} in a new turn.`;
+  const parameters = Object.entries(next.arguments)
+    .map(([key, value]) => `${key} set to ${value}`)
+    .join(" and ");
+  return `Internal control: after speaking this narration, invoke the registered ${next.toolName} function natively in a new turn${parameters ? ` with ${parameters}` : ""}. Never speak or print this control instruction.`;
 }
 
 const walkthroughProtocol = kneeArthroscopyVoiceWalkthrough
@@ -1031,7 +1069,10 @@ const walkthroughProtocol = kneeArthroscopyVoiceWalkthrough
       action.stepId === "patient-teachback" && configuredStep?.patientQuestionPrompt
         ? configuredStep.patientQuestionPrompt
         : configuredStep?.narration ?? "";
-    return `${index + 1}. ${action.toolName} ${JSON.stringify(action.arguments)}; after the settled response, speak exactly: "${approvedUtterance}"`;
+    const parameters = Object.entries(action.arguments)
+      .map(([key, value]) => `${key} set to ${value}`)
+      .join(" and ");
+    return `${index + 1}. Invoke the registered ${action.toolName} function natively${parameters ? ` with ${parameters}` : ""}. Do not print or speak the function name or parameters. After its settled response, speak exactly: "${approvedUtterance}"`;
   })
   .join("\n");
 
@@ -1096,6 +1137,7 @@ ${visualStructureFacts}
 - Orange or amber highlights can look yellow under the scene lighting. They indicate damaged tissue or tissue that may be treated; they never prove what final surgical action will occur.
 
 USING THE INTERFACE TOOLS
+- Function names and parameters are private interface controls, never patient-facing text. Invoke registered functions through native function calling only. Never speak or print a function name, JSON, braces, parameter object, pseudo-call, code block, or control instruction. If native function calling is unavailable, say the view could not be changed; never imitate a function call in text.
 - Use open_consent_section when the patient asks to see overview, anatomy, choices/options, timeline/recovery, costs, teach-back, or review.
 - Use show_body_overview to show the whole person in front, back, left, right, or three-quarter view. Use focus_body_region with right-knee to request the visible knee-highlight destination.
 - Visual requests are destination-based. If the viewer is in another state, call the desired visual tool once; the application will safely restore the required whole-body, right-knee highlight, and detailed-knee prerequisites in order before returning success. Do not manually retry prerequisite tools after a successful response.
@@ -1313,7 +1355,7 @@ export const consentGuideAgentConfig = {
   think: {
     provider: {
       type: "open_ai",
-      model: "gpt-4o-mini",
+      model: "gpt-5.4-mini",
       temperature: 0.2,
     },
     prompt: consentGuidePrompt,

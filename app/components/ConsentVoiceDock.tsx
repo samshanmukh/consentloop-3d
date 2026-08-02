@@ -332,8 +332,8 @@ export function ConsentVoiceDock({
           </button>
 
           <p className="cl-voice-dock__notice">
-            This guide explains the synthetic demo. It does not diagnose, recommend a treatment,
-            or record consent.
+            This guide explains the information prepared for your consent session. It does not
+            diagnose, recommend a treatment, or record consent.
           </p>
         </div>
       </div>

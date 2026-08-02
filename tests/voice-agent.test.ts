@@ -12,10 +12,12 @@ import {
   getVoiceFunctionProtocolErrors,
   getVoiceNarrationCue,
   getVoiceVisualizationSequenceError,
+  isFullProcedureWalkthroughRequest,
   isVisualizationVoiceToolCall,
   kneeArthroscopyVoiceWalkthrough,
   normalizeVoiceToolCall,
   planVoiceVisualizationCommands,
+  recoverLiteralVisualizationToolCall,
   reduceVoiceNarrationBarrier,
   serializeVoiceToolResult,
   voiceToolToVisualizationCommand,
@@ -65,6 +67,8 @@ test("agent configuration is grounded and exposes client-side tools only", () =>
   );
   assert.match(consentGuidePrompt, /whole person first, blue right-knee highlight second, camera zoom\/detail third/i);
   assert.match(consentGuidePrompt, /exactly ONE visual function per function-call request/);
+  assert.match(consentGuidePrompt, /native function calling only/i);
+  assert.doesNotMatch(consentGuidePrompt, /show_body_overview \{\"view\"/);
   assert.match(consentGuidePrompt, /settled\.transitionCompleted=true/);
   assert.match(consentGuidePrompt, /Visual requests are destination-based/);
   assert.match(consentGuidePrompt, /safely restore the required whole-body/);
@@ -74,6 +78,49 @@ test("agent configuration is grounded and exposes client-side tools only", () =>
   assert.match(consentGuidePrompt, /cannot update a clinical record/i);
   assert.equal(consentGuideAgentConfig.listen.provider.model, "flux-general-en");
   assert.equal(consentGuideAgentConfig.speak.provider.model, "aura-2-thalia-en");
+  assert.equal(consentGuideAgentConfig.think.provider.model, "gpt-5.4-mini");
+  assert.doesNotMatch(
+    getProcedureStep("knee-arthroscopy", "important-risk")?.narration ?? "",
+    /educational|demo|patient-specific prediction/i,
+  );
+});
+
+test("literal visualization pseudo-calls are recovered without widening tool access", () => {
+  const recovered = recoverLiteralVisualizationToolCall(
+    '{show_body_overview {"view":"three-quarter"}}',
+    "literal-1",
+  );
+  assert.equal(recovered?.ok, true);
+  if (!recovered?.ok) assert.fail("Expected the screenshot pseudo-call to recover");
+  assert.equal(recovered.call.name, "show_body_overview");
+  assert.deepEqual(recovered.call.arguments, { view: "three-quarter" });
+
+  assert.equal(
+    recoverLiteralVisualizationToolCall(
+      '{request_human {"destination":"clinician","confirmed_by_user":true}}',
+    ),
+    null,
+  );
+  assert.equal(
+    recoverLiteralVisualizationToolCall("Please show the knee when ready."),
+    null,
+  );
+
+  const invalid = recoverLiteralVisualizationToolCall(
+    '{focus_body_region {"regionId":"left-knee"}}',
+  );
+  assert.equal(invalid?.ok, false);
+});
+
+test("only explicit full-procedure requests opt into automatic walkthrough progression", () => {
+  assert.equal(isFullProcedureWalkthroughRequest("Walk me through it"), true);
+  assert.equal(
+    isFullProcedureWalkthroughRequest("Walk me through the whole knee procedure"),
+    true,
+  );
+  assert.equal(isFullProcedureWalkthroughRequest("Resume the walkthrough"), true);
+  assert.equal(isFullProcedureWalkthroughRequest("What is this yellow part?"), false);
+  assert.equal(isFullProcedureWalkthroughRequest("Show the damaged part"), false);
 });
 
 test("guided walkthrough highlights the knee before zooming and advances one configured step at a time", () => {
