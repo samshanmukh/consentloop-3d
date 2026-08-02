@@ -167,7 +167,7 @@ export interface CurrentVisualContext {
   visibleHighlights: VisibleStructureContext[];
   visualMode: VisualMode | null;
   comparisonVisible: boolean;
-  educationalDisclaimer: string;
+  careTeamConfirmation: string;
 }
 
 export type VoiceToolExecutionResult =
@@ -461,12 +461,12 @@ const structureVoiceFacts: Record<
   "meniscus-tear": {
     label: "torn meniscus area",
     whatItIs:
-      "This is the torn area of the right meniscus identified in the synthetic procedure explanation.",
+      "This is the torn area of the right meniscus identified for the procedure discussion.",
   },
   "cruciate-ligaments": {
     label: "cruciate ligaments",
     whatItIs:
-      "The ACL and PCL are central stabilizing ligaments shown for orientation; they are not the treatment target in this demo.",
+      "The ACL and PCL are central stabilizing ligaments shown for orientation; they are not the treatment target in this procedure plan.",
   },
   "camera-portals": {
     label: "arthroscopy camera portals",
@@ -524,8 +524,8 @@ export function getCurrentVisualContext(
   snapshot: VisualizationSnapshot | null,
   viewerVisible = true,
 ): CurrentVisualContext {
-  const educationalDisclaimer =
-    "This is an educational illustration, not a patient-specific scan or surgical navigation.";
+  const careTeamConfirmation =
+    "The visualization follows the procedure plan prepared for this consent session. The care team confirms the final findings and treatment.";
   if (!snapshot) {
     return {
       viewerVisible,
@@ -537,12 +537,12 @@ export function getCurrentVisualContext(
       whatIsHappening:
         "Open the anatomy view and begin the approved procedure walkthrough before describing a visible part.",
       damagedArea:
-        "The synthetic case concerns a torn right meniscus, but no current highlight has been confirmed.",
+        "The procedure discussion concerns a torn right meniscus, but no current highlight has been confirmed.",
       primaryHighlight: null,
       visibleHighlights: [],
       visualMode: null,
       comparisonVisible: false,
-      educationalDisclaimer,
+      careTeamConfirmation,
     };
   }
 
@@ -583,12 +583,12 @@ export function getCurrentVisualContext(
     damagedArea:
       primaryHighlight?.structureId === "meniscus-tear"
         ? "The orange or amber area is the torn part of the right meniscus. It can look yellow under the scene lighting."
-        : "The damaged structure in this synthetic case is the torn right meniscus; it may not be the structure highlighted in the current step.",
+        : "The damaged structure described for this consent session is the torn right meniscus; it may not be the structure highlighted in the current step.",
     primaryHighlight,
     visibleHighlights,
     visualMode: snapshot.visualMode,
     comparisonVisible: snapshot.comparison,
-    educationalDisclaimer,
+    careTeamConfirmation,
   };
 }
 
@@ -1038,7 +1038,7 @@ const walkthroughProtocol = kneeArthroscopyVoiceWalkthrough
 const optionFacts = careOptions
   .map(
     (option) =>
-      `- ${option.id}: ${option.title}. ${option.summary} Benefit: ${option.benefit}. Recovery: ${option.recovery}. Work: ${option.work}. Synthetic estimate: ${option.estimate}. Important details: ${option.details.join("; ")}.`,
+      `- ${option.id}: ${option.title}. ${option.summary} Benefit: ${option.benefit}. Recovery: ${option.recovery}. Work: ${option.work}. Current estimate: ${option.estimate}. Important details: ${option.details.join("; ")}.`,
   )
   .join("\n");
 
@@ -1060,20 +1060,22 @@ const visualStructureFacts = structureIds
   })
   .join("\n");
 
-export const consentGuidePrompt = `You are ConsentLoop Guide, a calm voice guide for a SYNTHETIC patient-education demo. Speak directly to ${patient.name} in plain language.
+export const consentGuidePrompt = `You are ConsentLoop Guide, a calm patient-facing voice guide. Speak directly to ${patient.name} in plain language.
 
 ROLE AND HARD BOUNDARIES
-- Explain only the demo facts below. Do not diagnose, assess symptoms, recommend or rank a treatment, invent facts, make a clinical decision, or replace ${patient.clinician} and the care team.
+- Explain only the consent-session facts below. Do not diagnose, assess symptoms, recommend or rank a treatment, invent facts, make a clinical decision, or replace ${patient.clinician} and the care team.
 - A recorded preference is not consent, not a prescription, and not a scheduled treatment. Never say the patient has consented. Never sign, acknowledge, schedule, or change a record for the patient.
-- Every 3D view is an educational illustration, not surgical navigation, a patient-specific scan, or a prediction of the final treatment. Say so when precision matters.
-- Visual tools only change the educational view. They cannot update a clinical record, activate consent, mark teach-back correct, or resolve a care-team task.
+- Present this as the patient's current consent experience without product-status commentary. Do not volunteer implementation or data-provenance disclaimers.
+- Do not claim a live-record connection, confirmed diagnosis, final surgical finding, or guaranteed price unless a tool explicitly confirms it. If asked about provenance, say: “This is the information prepared for your consent session; your care team can confirm its source and current status.”
+- When visual precision matters, say exactly: “The visualization shows the procedure plan; your care team confirms the final findings and treatment.” Do not add another disclaimer.
+- Visual tools only change the procedure view. They cannot update a clinical record, activate consent, mark teach-back correct, or resolve a care-team task.
 - Present every available option with equal weight. Never call one option best, recommended, safer, or right for this patient. Ask what matters to the patient instead.
 - Use one or two short spoken sentences at a time, then pause. Avoid markdown, long lists, and dense medical jargon. Answer the question asked before offering a next step.
 - If information is missing or outside these facts, say you do not know and offer a human handoff. Never guess.
 - If the patient describes severe, rapidly worsening, or potentially life-threatening symptoms, do not assess urgency. Tell them to contact local emergency services or seek urgent in-person care now, then offer a clinician handoff.
 
-DEMO PATIENT AND PLAN
-- Patient: ${patient.name}. Procedure under discussion: ${patient.procedure}. Clinician: ${patient.clinician}. Site: ${patient.location}. Planned demo appointment: ${patient.appointment}.
+PATIENT AND PLAN
+- Patient: ${patient.name}. Procedure under discussion: ${patient.procedure}. Clinician: ${patient.clinician}. Site: ${patient.location}. Planned appointment: ${patient.appointment}.
 - This is a right-knee meniscus decision. Arthroscopy uses two small portals so the surgeon can look inside the knee. The tissue may be trimmed only if unstable, or repaired only if tissue quality and blood supply make repair possible. The final surgical action cannot be confirmed until the surgeon sees the tear.
 - The patient may also continue physical therapy and reassess instead of following a surgical pathway.
 
@@ -1084,10 +1086,10 @@ TIMELINE AND RECOVERY
 ${timelineFacts}
 - Recovery depends on what is done. A repair can require a brace, protected weight bearing, more therapy, and four to six or more weeks of planning for standing work. A trim often allows earlier weight bearing, but exact instructions come from the care team.
 
-SYNTHETIC COST DETAILS
-- The current combined patient estimate shown in the demo is $2,045–$3,120. It is an estimate, not a final bill or coverage guarantee.
+COST DETAILS
+- The current combined patient estimate is $2,045–$3,120. It is an estimate, not a final bill or coverage guarantee.
 ${costFacts}
-- The demo assumes a $3,000 deductible, 62 percent met, 20 percent coinsurance, and 12 post-operative therapy visits. Anesthesia network status is pending and can change the amount.
+- The current estimate uses a $3,000 deductible, 62 percent met, 20 percent coinsurance, and 12 post-operative therapy visits. Anesthesia network status is pending and can change the amount.
 
 APPROVED VISUAL ANATOMY FACTS
 ${visualStructureFacts}
@@ -1107,7 +1109,7 @@ USING THE INTERFACE TOOLS
 - Issue exactly ONE visual function per function-call request. Never batch visual functions or request the next visual while the prior function is pending. One destination request may internally prepare several safe scene prerequisites; wait for the single response, then describe only its final settled scene. During the full narrated walkthrough, keep using the numbered actions in order.
 - If a visual tool fails, do not request a later walkthrough action. Say the view could not be changed and continue verbally or offer on-screen controls.
 - Never invent an identifier, procedure step, structure, region, color, or visual mode. Never describe camera coordinates, mesh names, materials, or rendering internals.
-- request_human only after the patient directly requests a person or explicitly confirms your offer. Their request itself counts as confirmation. Never claim a message was sent or an appointment was booked; the demo only prepares a handoff request.
+- request_human only after the patient directly requests a person or explicitly confirms your offer. Their request itself counts as confirmation. Never claim a message was sent or an appointment was booked; the app only prepares a handoff request for review.
 
 DETERMINISTIC RIGHT-KNEE WALKTHROUGH
 - When the patient asks to explain, start, show, or walk through the whole knee procedure, follow the exact numbered protocol below from the beginning. Do not begin on the detached knee model, skip a step, or stop early unless the patient interrupts.
@@ -1194,7 +1196,7 @@ export const voiceToolDefinitions = [
   {
     name: "play_procedure_step",
     description:
-      "Show exactly one configured educational step. Wait for its settled response and narrate the returned approved copy before calling the next step; never batch or skip steps.",
+      "Show exactly one configured procedure step. Wait for its settled response and narrate the returned approved copy before calling the next step; never batch or skip steps.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1208,7 +1210,7 @@ export const voiceToolDefinitions = [
   {
     name: "highlight_structure",
     description:
-      "Highlight one approved educational structure with a semantic color.",
+      "Highlight one approved anatomical structure with a semantic color.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1222,7 +1224,7 @@ export const voiceToolDefinitions = [
   {
     name: "set_visual_mode",
     description:
-      "Change the educational rendering mode without directly controlling scene materials.",
+      "Change the procedure rendering mode without directly controlling scene materials.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1383,7 +1385,7 @@ export function createConsentVoiceSessionConfig(
       maxDelay: 8_000,
       jitter: true,
     },
-    tags: ["consentloop", "synthetic-demo"],
+    tags: ["consentloop", "patient-consent"],
   };
 }
 

@@ -52,7 +52,12 @@ test("agent configuration is grounded and exposes client-side tools only", () =>
   assert.match(consentGuidePrompt, /Do not diagnose/);
   assert.match(consentGuidePrompt, /preference is not consent/i);
   assert.match(consentGuidePrompt, /Present every available option with equal weight/);
-  assert.match(consentGuidePrompt, /educational illustration/i);
+  assert.match(consentGuidePrompt, /current consent experience/i);
+  assert.match(consentGuidePrompt, /information prepared for your consent session/i);
+  assert.doesNotMatch(
+    consentGuidePrompt,
+    /\bdemo\b|\bsynthetic\b|educational illustration|not patient-specific|not your actual record/i,
+  );
   assert.match(consentGuidePrompt, /WHOLE-KNEE MISCONCEPTION SEQUENCE/);
   assert.match(
     consentGuidePrompt,
@@ -301,7 +306,11 @@ test("visual inspection grounds yellow-part, damage, and current-action question
     damaged.whatIsHappening,
     getProcedureStep("knee-arthroscopy", "damaged-structure")?.narration,
   );
-  assert.match(damaged.educationalDisclaimer, /not a patient-specific scan/i);
+  assert.match(damaged.careTeamConfirmation, /care team confirms/i);
+  assert.doesNotMatch(
+    damaged.careTeamConfirmation,
+    /educational|not patient-specific|not your actual record/i,
+  );
 });
 
 test("visual inspection reflects only genuinely visible highlights", () => {
