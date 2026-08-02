@@ -28,7 +28,7 @@ export async function generateMetadata(): Promise<Metadata> {
       template: "%s · ConsentLoop 3D",
     },
     description:
-      "ConsentLoop turns informed consent into an interactive, measurable patient journey with 3D anatomy and teach-back.",
+      "A simple patient-education experience for understanding a diagnosis, comparing options, and viewing a procedure step by step in 3D.",
     icons: {
       icon: "/favicon.svg",
       shortcut: "/favicon.svg",
@@ -36,14 +36,14 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       title: "ConsentLoop 3D",
       description:
-        "See it. Compare it. Understand it. A synthetic interactive informed-consent experience.",
+        "Understand the diagnosis, compare care paths, and view the procedure one step at a time.",
       type: "website",
       images: [{ url: socialImage, width: 1680, height: 945, alt: "ConsentLoop 3D interactive knee consent experience" }],
     },
     twitter: {
       card: "summary_large_image",
       title: "ConsentLoop 3D",
-      description: "See it. Compare it. Understand it.",
+      description: "A simpler way to understand a diagnosis and procedure.",
       images: [socialImage],
     },
   };

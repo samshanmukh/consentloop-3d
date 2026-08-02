@@ -2795,3 +2795,511 @@ button:disabled {
     background: var(--glass-solid);
   }
 }
+
+/* Minimal patient decision flow */
+.consent-simple {
+  min-height: 100svh;
+  background: #f4f7fa;
+  color: #111b2b;
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+}
+
+.simple-header {
+  min-height: 68px;
+  padding: 0 28px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 24px;
+  border-bottom: 1px solid #dfe5eb;
+  background: #fff;
+}
+
+.simple-brand,
+.simple-case,
+.simple-ask,
+.simple-context,
+.simple-demo-note,
+.simple-primary,
+.simple-secondary,
+.simple-text-action,
+.guide-panel-head > div,
+.guide-panel-head span {
+  display: flex;
+  align-items: center;
+}
+
+.simple-brand {
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 720;
+  letter-spacing: -0.025em;
+}
+
+.simple-brand-mark {
+  width: 25px;
+  height: 25px;
+  position: relative;
+  transform: rotate(-45deg);
+}
+
+.simple-brand-mark i {
+  width: 11px;
+  height: 19px;
+  position: absolute;
+  border-radius: 999px;
+  background: #1769e8;
+}
+
+.simple-brand-mark i:first-child { left: 2px; top: 2px; }
+.simple-brand-mark i:last-child { right: 2px; bottom: 2px; opacity: 0.48; }
+
+.simple-case {
+  justify-content: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.simple-case span { font-weight: 650; }
+.simple-case small { color: #677386; }
+
+.simple-ask,
+.simple-primary,
+.simple-secondary,
+.simple-text-action {
+  min-height: 42px;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 9px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.simple-ask {
+  justify-self: end;
+  padding: 0 15px;
+  color: #145fcf;
+  background: #edf4ff;
+}
+
+.simple-ask:hover { background: #dfebff; }
+
+.simple-main {
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 52px 0 30px;
+}
+
+.simple-intro {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
+  margin-bottom: 38px;
+}
+
+.simple-context {
+  gap: 7px;
+  margin-bottom: 14px;
+  color: #3f4d61;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.simple-intro h1 {
+  max-width: 720px;
+  margin: 0;
+  font-size: 42px;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.simple-intro p,
+.section-heading p,
+.diagnosis-copy > p,
+.procedure-copy > p {
+  max-width: 68ch;
+  color: #5f6c7f;
+  line-height: 1.65;
+}
+
+.simple-intro p { margin: 14px 0 0; font-size: 16px; }
+
+.simple-demo-note {
+  flex: 0 0 auto;
+  gap: 7px;
+  padding: 8px 11px;
+  color: #28735a;
+  border-radius: 999px;
+  background: #e8f5ef;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.simple-flow {
+  display: flex;
+  gap: 0;
+  margin-bottom: 24px;
+  border-bottom: 1px solid #d8e0e8;
+}
+
+.simple-flow button {
+  min-height: 52px;
+  padding: 0 22px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  position: relative;
+  color: #69768a;
+  border: 0;
+  background: transparent;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.simple-flow button::after {
+  content: "";
+  height: 2px;
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  background: transparent;
+}
+
+.simple-flow button > span {
+  width: 23px;
+  height: 23px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #e7ecf2;
+  font-size: 12px;
+}
+
+.simple-flow button:hover { color: #26354a; }
+.simple-flow button.active { color: #145fcf; }
+.simple-flow button.active::after { background: #1769e8; }
+.simple-flow button.active > span { color: #fff; background: #1769e8; }
+
+.simple-content {
+  min-height: 610px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(30, 55, 82, 0.08);
+}
+
+.diagnosis-layout,
+.procedure-layout {
+  min-height: 610px;
+  display: grid;
+  grid-template-columns: minmax(300px, 0.8fr) minmax(480px, 1.4fr);
+}
+
+.diagnosis-copy {
+  padding: 66px 54px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.diagnosis-copy h2,
+.section-heading h2,
+.procedure-copy h2,
+.questions-layout h2 {
+  margin: 0;
+  font-size: 29px;
+  line-height: 1.18;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.diagnosis-copy > p { margin: 16px 0 28px; }
+
+.diagnosis-copy dl {
+  width: 100%;
+  margin: 0 0 30px;
+}
+
+.diagnosis-copy dl div {
+  padding: 12px 0;
+  display: grid;
+  grid-template-columns: 108px 1fr;
+  gap: 14px;
+  border-top: 1px solid #e7ebf0;
+}
+
+.diagnosis-copy dt { color: #748094; font-size: 13px; }
+.diagnosis-copy dd { margin: 0; font-size: 14px; font-weight: 620; }
+
+.simple-primary,
+.simple-secondary {
+  padding: 0 17px;
+}
+
+.simple-primary { color: #fff; background: #1769e8; }
+.simple-primary:hover { background: #0f5dcc; }
+.simple-secondary { color: #26354a; background: #edf1f5; }
+.simple-secondary:hover { background: #e1e7ed; }
+.simple-primary:active,
+.simple-secondary:active,
+.simple-ask:active { transform: translateY(1px); }
+
+.simple-model-frame {
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  background: #eef4fb;
+}
+
+.simple-model-frame .knee-viewer {
+  min-height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.simple-model-frame .viewer-ambient { opacity: 0.24; }
+.simple-model-frame .viewer-topline { top: 18px; right: 18px; left: 18px; }
+.simple-model-frame .viewer-license { right: 16px; bottom: 12px; }
+.simple-viewer-loading { min-height: 610px; display: grid; place-items: center; color: #667388; }
+
+.options-layout,
+.questions-layout { padding: 46px 54px 52px; }
+
+.section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 34px;
+  margin-bottom: 30px;
+}
+
+.section-heading p { max-width: 540px; margin: 0; font-size: 14px; }
+
+.option-list { border-top: 1px solid #dfe5eb; }
+
+.option-row {
+  width: 100%;
+  padding: 21px 14px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 16px;
+  color: inherit;
+  border: 0;
+  border-bottom: 1px solid #dfe5eb;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.option-row:hover { background: #f7f9fb; }
+.option-row.selected { background: #eef5ff; }
+
+.option-radio {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #bac5d1;
+  border-radius: 50%;
+}
+
+.option-row.selected .option-radio { color: #fff; border-color: #1769e8; background: #1769e8; }
+
+.option-main { display: grid; gap: 5px; }
+.option-main strong { font-size: 16px; }
+.option-main > span:last-child { max-width: 76ch; color: #667388; font-size: 14px; line-height: 1.5; }
+.option-meta { color: #456079; font-size: 12px; font-weight: 650; }
+
+.option-detail {
+  margin-top: 32px;
+  padding: 26px 28px;
+  display: grid;
+  grid-template-columns: minmax(230px, 0.85fr) minmax(320px, 1.15fr) auto;
+  align-items: center;
+  gap: 30px;
+  border-radius: 12px;
+  background: #f4f7fa;
+}
+
+.option-detail > div > span,
+.procedure-label {
+  color: #647186;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.option-detail h3 { margin: 5px 0 7px; font-size: 19px; }
+.option-detail p { margin: 0; color: #5e6c80; font-size: 14px; }
+.option-detail ul { margin: 0; padding-left: 18px; color: #526075; font-size: 13px; line-height: 1.75; }
+
+.procedure-layout { grid-template-columns: minmax(520px, 1.35fr) minmax(330px, 0.65fr); }
+.procedure-model { min-height: 610px; }
+
+.procedure-copy {
+  padding: 44px 38px;
+  display: flex;
+  flex-direction: column;
+}
+
+.procedure-copy h2 { margin-top: 7px; }
+.procedure-copy > p { margin: 12px 0 24px; font-size: 14px; }
+
+.procedure-step-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid #e0e5eb;
+}
+
+.procedure-step-list button {
+  width: 100%;
+  min-height: 50px;
+  padding: 8px 4px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: #59677a;
+  border: 0;
+  border-bottom: 1px solid #e0e5eb;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.procedure-step-list button span {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #e8edf2;
+  font-size: 12px;
+}
+
+.procedure-step-list button.active { color: #145fcf; font-weight: 680; }
+.procedure-step-list button.active span { color: #fff; background: #1769e8; }
+
+.procedure-controls { margin-top: auto; padding-top: 24px; display: flex; justify-content: space-between; gap: 10px; }
+.procedure-copy > .simple-text-action { margin-top: 12px; align-self: center; }
+
+.simple-text-action {
+  min-height: 34px;
+  padding: 0 6px;
+  color: #145fcf;
+  background: transparent;
+}
+
+.simple-text-action:hover { color: #0f4fa9; background: #edf4ff; }
+.simple-text-action:disabled { color: #a0a9b5; background: transparent; }
+.simple-error { padding: 10px 12px; color: #9b2f3d !important; border-radius: 8px; background: #fff0f2; }
+
+.questions-layout { max-width: 880px; margin: 0 auto; }
+.questions-layout .section-heading { display: block; }
+.questions-layout .section-heading p { margin-top: 10px; }
+
+.question-prompts { margin-bottom: 28px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+.question-prompts button {
+  min-height: 54px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #29384c;
+  border: 1px solid #dce3ea;
+  border-radius: 10px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.question-prompts button:hover { border-color: #aab9ca; background: #f8fafc; }
+
+.guide-panel { border-radius: 12px; background: #f3f6f9; }
+.guide-panel-head { min-height: 70px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.guide-panel-head > div { gap: 10px; }
+.guide-panel-head span { align-items: flex-start; flex-direction: column; gap: 2px; }
+.guide-panel-head small { color: #6a778a; text-transform: capitalize; }
+
+.guide-conversation { max-height: 260px; padding: 8px 16px 16px; overflow-y: auto; }
+.guide-conversation p { margin: 8px 0; padding: 10px 12px; line-height: 1.45; font-size: 14px; }
+.guide-conversation p strong { display: block; margin-bottom: 3px; font-size: 11px; }
+.guide-conversation .assistant { margin-right: 12%; background: #fff; border-radius: 8px 8px 8px 2px; }
+.guide-conversation .user { margin-left: 12%; color: #fff; background: #1769e8; border-radius: 8px 8px 2px 8px; }
+.guide-empty { color: #69768a; text-align: center; }
+.guide-error { color: #9b2f3d; background: #fff0f2; border-radius: 8px; }
+.guide-notice { color: #315d4b; background: #e6f3ed; border-radius: 8px; }
+
+.guide-input { min-height: 58px; padding: 8px; display: grid; grid-template-columns: 1fr 42px; gap: 8px; border-top: 1px solid #dce3ea; }
+.guide-input input { min-width: 0; padding: 0 10px; color: #172235; border: 0; background: transparent; outline: 0; }
+.guide-input input::placeholder { color: #667388; opacity: 1; }
+.guide-input button { display: grid; place-items: center; color: #fff; border: 0; border-radius: 8px; background: #1769e8; cursor: pointer; }
+.guide-input button:disabled { background: #aab7c6; }
+
+.simple-footer {
+  min-height: 58px;
+  padding: 0 4px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  color: #7a8595;
+  font-size: 12px;
+}
+
+.simple-footer .simple-text-action:first-child { justify-self: start; }
+.simple-footer .simple-text-action:last-child { justify-self: end; }
+
+@media (max-width: 900px) {
+  .simple-header { grid-template-columns: 1fr auto; padding: 0 18px; }
+  .simple-case { display: none; }
+  .simple-main { width: min(100% - 24px, 720px); padding-top: 32px; }
+  .simple-intro { align-items: flex-start; flex-direction: column; gap: 16px; }
+  .simple-intro h1 { font-size: 34px; }
+  .simple-flow { overflow-x: auto; }
+  .simple-flow button { min-width: max-content; padding: 0 15px; }
+  .diagnosis-layout,
+  .procedure-layout { grid-template-columns: 1fr; }
+  .diagnosis-model { min-height: 520px; grid-row: 1; }
+  .diagnosis-copy { padding: 38px 30px; }
+  .procedure-model { min-height: 520px; }
+  .procedure-copy { min-height: 540px; }
+  .section-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .options-layout,
+  .questions-layout { padding: 36px 28px 42px; }
+  .option-detail { grid-template-columns: 1fr; gap: 18px; }
+}
+
+@media (max-width: 560px) {
+  .simple-header { min-height: 62px; }
+  .simple-ask { width: 42px; padding: 0; }
+  .simple-ask svg { margin: 0; }
+  .simple-ask { font-size: 0; }
+  .simple-intro h1 { font-size: 30px; }
+  .simple-intro p { font-size: 14px; }
+  .simple-demo-note { align-self: flex-start; }
+  .simple-flow button { padding: 0 12px; font-size: 13px; }
+  .simple-flow button > span { display: none; }
+  .simple-content { min-height: 0; border-radius: 10px; }
+  .diagnosis-model,
+  .procedure-model { min-height: 430px; }
+  .diagnosis-copy,
+  .procedure-copy,
+  .options-layout,
+  .questions-layout { padding: 30px 20px 34px; }
+  .diagnosis-copy dl div { grid-template-columns: 86px 1fr; }
+  .option-row { padding: 18px 6px; grid-template-columns: 22px minmax(0, 1fr); }
+  .option-row > svg { display: none; }
+  .option-detail { padding: 22px 18px; }
+  .question-prompts { grid-template-columns: 1fr; }
+  .simple-footer > span { display: none; }
+  .simple-footer { grid-template-columns: 1fr 1fr; }
+}

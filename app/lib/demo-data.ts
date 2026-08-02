@@ -15,7 +15,7 @@ export type JourneyView =
 
 export type Preference = "preferred" | "unsure" | "not-preferred" | null;
 
-export type OptionId = "therapy" | "trim" | "repair";
+export type OptionId = "therapy" | "repair" | "trim" | "regenerative";
 
 export interface CareOption {
   id: OptionId;
@@ -54,7 +54,7 @@ export const careOptions: CareOption[] = [
   {
     id: "therapy",
     eyebrow: "Non-surgical",
-    title: "Continue physical therapy",
+    title: "Rehabilitation first",
     summary:
       "Continue guided strengthening and mobility work for six weeks, then reassess symptoms with your care team.",
     benefit: "Avoids surgery while testing whether symptoms improve",
@@ -70,30 +70,11 @@ export const careOptions: CareOption[] = [
     ],
   },
   {
-    id: "trim",
-    eyebrow: "Surgical pathway",
-    title: "Arthroscopy · possible trim",
-    summary:
-      "The surgeon examines the meniscus through two small portals and may remove only unstable damaged tissue.",
-    benefit: "May reduce catching and pain from unstable tissue",
-    recovery: "Often earlier weight bearing than repair",
-    work: "Desk work often returns before standing work",
-    estimate: "$1,850–$2,650",
-    confidence: "Moderate confidence",
-    accent: "coral",
-    recommended: true,
-    details: [
-      "Final action depends on the tissue seen during surgery",
-      "Crutches may be used for comfort initially",
-      "Physical therapy is commonly part of recovery",
-    ],
-  },
-  {
     id: "repair",
     eyebrow: "Surgical pathway",
-    title: "Arthroscopy · possible repair",
+    title: "Arthroscopic meniscus repair",
     summary:
-      "If the tear has enough healthy blood supply, the surgeon may place sutures to preserve the meniscus.",
+      "If the tear pattern, tissue quality, and blood supply allow it, the surgeon may place sutures to preserve the meniscus.",
     benefit: "Preserves more meniscus tissue when repair is possible",
     recovery: "Longer protected recovery",
     work: "Standing work may require 4–6+ weeks of planning",
@@ -101,12 +82,65 @@ export const careOptions: CareOption[] = [
     confidence: "Range estimate",
     accent: "violet",
     details: [
-      "Brace and protected weight bearing may be required",
-      "More therapy visits are likely",
-      "Repair cannot be confirmed until the surgeon sees the tear",
+      "Repair depends on the tear pattern and blood supply",
+      "A brace and protected weight bearing may be required",
+      "More rehabilitation is usually needed than after trimming",
+    ],
+  },
+  {
+    id: "trim",
+    eyebrow: "Surgical pathway",
+    title: "Arthroscopic partial meniscectomy",
+    summary:
+      "The surgeon examines the meniscus through two small portals and removes only unstable damaged tissue that cannot be repaired.",
+    benefit: "May reduce catching and pain from unstable tissue",
+    recovery: "Often earlier weight bearing than repair",
+    work: "Desk work often returns before standing work",
+    estimate: "$1,850–$2,650",
+    confidence: "Moderate confidence",
+    accent: "coral",
+    details: [
+      "Only unstable tissue is removed; this is not a knee replacement",
+      "The final action depends on what the surgeon sees",
+      "Physical therapy is commonly part of recovery",
+    ],
+  },
+  {
+    id: "regenerative",
+    eyebrow: "Investigational pathway",
+    title: "Stem-cell or regenerative injection",
+    summary:
+      "Some clinics offer cell-based or other regenerative injections, but they are not FDA-approved for orthopedic conditions and are not proven to regrow a torn meniscus.",
+    benefit: "A potential meniscus-healing benefit has not been established",
+    recovery: "Protocols and outcomes are uncertain",
+    work: "Discuss only with an orthopedic specialist or regulated clinical trial team",
+    estimate: "Often self-pay",
+    confidence: "Insufficient evidence",
+    accent: "blue",
+    details: [
+      "Not an established substitute for repair or rehabilitation",
+      "Ask whether a product is FDA-approved or used in an FDA-overseen trial",
+      "Review known risks, costs, and evidence with your clinician",
     ],
   },
 ];
+
+export function getDemoAnswer(question: string): string {
+  const normalized = question.toLowerCase();
+  if (normalized.includes("stem") || normalized.includes("regenerative")) {
+    return "Stem-cell and regenerative injections are investigational for a torn meniscus. They are not FDA-approved for orthopedic conditions or proven to regrow the tear, so discuss evidence and regulated trials with your clinician.";
+  }
+  if (normalized.includes("different") || normalized.includes("trimming")) {
+    return "A repair uses sutures to preserve suitable meniscus tissue. Trimming removes only unstable damaged tissue that cannot be repaired, and recovery is often shorter, but the surgeon decides after inspecting the tear.";
+  }
+  if (normalized.includes("repair")) {
+    return "During arthroscopic repair, the surgeon enters through small portals, inspects the tear, and places sutures only when the pattern, tissue quality, and blood supply make repair possible.";
+  }
+  if (normalized.includes("surgeon") || normalized.includes("ask")) {
+    return "Ask whether your tear can be repaired, what may change during arthroscopy, what recovery restrictions to expect, and which personal risks matter most for you.";
+  }
+  return "This educational demo can explain the meniscus tear, rehabilitation, repair, trimming, and the illustrated arthroscopy steps. Your surgeon should answer patient-specific questions.";
+}
 
 export const timeline = [
   {

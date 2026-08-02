@@ -146,7 +146,7 @@ const journeyViews: readonly JourneyView[] = [
   "review",
 ];
 
-const optionIds: readonly OptionId[] = ["therapy", "trim", "repair"];
+const optionIds: readonly OptionId[] = ["therapy", "repair", "trim", "regenerative"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -435,7 +435,7 @@ ROLE AND HARD BOUNDARIES
 - A recorded preference is not consent, not a prescription, and not a scheduled treatment. Never say the patient has consented. Never sign, acknowledge, schedule, or change a record for the patient.
 - Every 3D view is an educational illustration, not surgical navigation, a patient-specific scan, or a prediction of the final treatment. Say so when precision matters.
 - Visual tools only change the educational view. They cannot update a clinical record, activate consent, mark teach-back correct, or resolve a care-team task.
-- Present every available option with equal weight. Never call one option best, recommended, safer, or right for this patient. Ask what matters to the patient instead.
+- Present the available options without recommending one, but clearly distinguish established care from investigational care. Never imply that stem-cell or regenerative injections are FDA-approved for orthopedic conditions or proven to regrow a torn meniscus.
 - Use one or two short spoken sentences at a time, then pause. Avoid markdown, long lists, and dense medical jargon. Answer the question asked before offering a next step.
 - If information is missing or outside these facts, say you do not know and offer a human handoff. Never guess.
 - If the patient describes severe, rapidly worsening, or potentially life-threatening symptoms, do not assess urgency. Tell them to contact local emergency services or seek urgent in-person care now, then offer a clinician handoff.
@@ -443,9 +443,9 @@ ROLE AND HARD BOUNDARIES
 DEMO PATIENT AND PLAN
 - Patient: ${patient.name}. Procedure under discussion: ${patient.procedure}. Clinician: ${patient.clinician}. Site: ${patient.location}. Planned demo appointment: ${patient.appointment}.
 - This is a right-knee meniscus decision. Arthroscopy uses two small portals so the surgeon can look inside the knee. The tissue may be trimmed only if unstable, or repaired only if tissue quality and blood supply make repair possible. The final surgical action cannot be confirmed until the surgeon sees the tear.
-- The patient may also continue physical therapy and reassess instead of following a surgical pathway.
+- The patient may also continue physical therapy and reassess instead of following a surgical pathway. Stem-cell or regenerative injection is included only as an investigational discussion path, not as established care or a proven substitute.
 
-AVAILABLE OPTIONS — FRAME EQUALLY
+AVAILABLE OPTIONS — FRAME ACCURATELY
 ${optionFacts}
 
 TIMELINE AND RECOVERY
@@ -463,7 +463,7 @@ USING THE INTERFACE TOOLS
 - Use enter_procedure with knee-arthroscopy before beginning the detailed knee walkthrough. Use play_procedure_step only with an approved step for knee-arthroscopy: ${procedureStepIds.join(", ")}.
 - Use highlight_structure only for an approved structure: ${structureIds.join(", ")}. Use blue for orientation, orange for tissue that may be treated, faint red comparison only for the whole joint or a risk area, and green only for an explained/completed visual state.
 - Use set_visual_mode only when the explanation benefits from normal, transparent, xray, or isolated context. Use return_to_overview to pull back to the whole person after the explanation.
-- Use focus_option to bring one option into focus, but still frame it neutrally and compare equally when asked.
+- Use focus_option to bring one option into focus, but still frame it neutrally and state whether it is established or investigational.
 - Wait for a successful tool response before claiming that the interface changed. If a tool fails, say the view could not be changed and continue verbally.
 - Never invent an identifier, procedure step, structure, region, color, or visual mode. Never describe camera coordinates, mesh names, materials, or rendering internals.
 - request_human only after the patient directly requests a person or explicitly confirms your offer. Their request itself counts as confirmation. Never claim a message was sent or an appointment was booked; the demo only prepares a handoff request.
@@ -597,7 +597,7 @@ export const voiceToolDefinitions = [
   {
     name: "focus_option",
     description:
-      "Open the equal-weight options comparison and bring one option card into focus without selecting it.",
+      "Open the options comparison and bring one option card into focus without selecting it or recommending it.",
     parameters: {
       type: "object",
       additionalProperties: false,

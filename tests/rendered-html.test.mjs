@@ -30,9 +30,9 @@ test("server-renders the ConsentLoop patient experience", async () => {
   const html = await response.text();
   assert.match(html, /<title>Patient consent journey · ConsentLoop 3D<\/title>/i);
   assert.match(html, /ConsentLoop/);
-  assert.match(html, /Make the decision clear/);
-  assert.match(html, /Synthetic demo/);
-  assert.match(html, /right meniscus tear/i);
+  assert.match(html, /You have a tear in your right meniscus/);
+  assert.match(html, /Synthetic education demo/);
+  assert.match(html, /right knee meniscus tear/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });
 
@@ -40,9 +40,11 @@ test("renders accessible journey navigation and non-speech controls", async () =
   const response = await render();
   const html = await response.text();
 
-  assert.match(html, /aria-label="Consent journey"/);
-  assert.match(html, /Interactive 3D anatomy/);
-  assert.match(html, /Start guided session/);
+  assert.match(html, /aria-label="Understanding workflow"/);
+  assert.match(html, /Your knee/);
+  assert.match(html, /Options/);
+  assert.match(html, /Procedure/);
+  assert.match(html, /Questions/);
   assert.match(html, /Compare options/);
-  assert.match(html, /Ask for help/);
+  assert.match(html, /Ask the guide/);
 });

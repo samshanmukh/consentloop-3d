@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { getDemoAnswer } from "../app/lib/demo-data";
+
 import {
   consentGuideAgentConfig,
   consentGuidePrompt,
@@ -12,6 +14,11 @@ import {
   voiceToolDefinitions,
   voiceToolNames,
 } from "../app/lib/voice-agent";
+
+test("browser demo answers stay medically bounded", () => {
+  assert.match(getDemoAnswer("Can stem cells regrow it?"), /investigational/i);
+  assert.match(getDemoAnswer("Repair versus trimming"), /surgeon decides/i);
+});
 
 function wireCall(
   name: string,
@@ -36,7 +43,8 @@ test("agent configuration is grounded and exposes client-side tools only", () =>
   assert.match(consentGuidePrompt, /\$2,045–\$3,120/);
   assert.match(consentGuidePrompt, /Do not diagnose/);
   assert.match(consentGuidePrompt, /preference is not consent/i);
-  assert.match(consentGuidePrompt, /Present every available option with equal weight/);
+  assert.match(consentGuidePrompt, /distinguish established care from investigational care/i);
+  assert.match(consentGuidePrompt, /Never imply that stem-cell or regenerative injections are FDA-approved/i);
   assert.match(consentGuidePrompt, /educational illustration/i);
   assert.match(consentGuidePrompt, /WHOLE-KNEE MISCONCEPTION SEQUENCE/);
   assert.match(
@@ -112,6 +120,20 @@ test("all seven visual tool calls map to exact high-level commands", () => {
 });
 
 test("nonvisual tool calls retain strict normalization", () => {
+  assert.deepEqual(
+    normalizeVoiceToolCall(
+      wireCall("focus_option", { option: "regenerative" }),
+    ),
+    {
+      ok: true,
+      call: {
+        id: "call-1",
+        name: "focus_option",
+        arguments: { option: "regenerative" },
+      },
+    },
+  );
+
   assert.deepEqual(
     normalizeVoiceToolCall(
       wireCall("open_consent_section", { section: "costs" }),
