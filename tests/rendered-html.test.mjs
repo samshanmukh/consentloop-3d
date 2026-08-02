@@ -31,7 +31,7 @@ test("server-renders the ConsentLoop patient experience", async () => {
   assert.match(html, /<title>Patient consent journey · ConsentLoop 3D<\/title>/i);
   assert.match(html, /ConsentLoop/);
   assert.match(html, /Make the decision clear/);
-  assert.match(html, /Synthetic demo/);
+  assert.doesNotMatch(html, /Synthetic demo · no real patient data/i);
   assert.match(html, /right meniscus tear/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });

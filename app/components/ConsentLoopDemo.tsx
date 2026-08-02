@@ -221,9 +221,6 @@ function OverviewView({ onNavigate }: { onNavigate: (view: JourneyView) => void 
     <div className="overview-grid view-enter">
       <section className="glass-card overview-hero">
         <div className="hero-copy">
-          <StatusPill tone="green">
-            <ShieldCheck size={14} /> Synthetic demo · no real patient data
-          </StatusPill>
           <h2>Good morning, Sam.</h2>
           <p>
             Dr. Chen has prepared three care paths for your right meniscus tear.
