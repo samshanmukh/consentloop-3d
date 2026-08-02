@@ -1,0 +1,43 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": ".",
+    "outDir": "dist",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmitOnError": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "sourceMap": true,
+    "types": ["node"]
+  },
+  "include": [
+    "bots/*/index.ts",
+    "packages/fhir/*.ts",
+    "packages/shared/*.ts",
+    "scripts/deploy-assess.ts",
+    "scripts/deploy-prepare.ts",
+    "scripts/reset-option-workflow.ts",
+    "scripts/seed-option-workflow.ts",
+    "scripts/smoke-full.ts",
+    "scripts/smoke-prepare.ts",
+    "tests/assess-teachback.test.ts",
+    "tests/contracts.test.ts",
+    "tests/demo-resources.test.ts",
+    "tests/fixtures.ts",
+    "tests/option-actions.test.ts",
+    "tests/option-catalog.test.ts",
+    "tests/option-snapshot.test.ts",
+    "tests/prepare-consent.test.ts",
+    "tests/reset-demo.test.ts",
+    "tests/session-read-model.test.ts",
+    "tests/workflow.test.ts"
+  ],
+  "exclude": ["dist", "node_modules"]
+}

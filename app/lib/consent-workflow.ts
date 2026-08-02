@@ -24,6 +24,34 @@ export interface ConsentWorkflowEvent {
   summary: string;
 }
 
+export interface ConsentWorkflowTreatmentOption {
+  id: string;
+  title: string;
+  summary: string;
+  expectedBenefits: string[];
+  materialRisks: string[];
+  eligibilityQuestions: string[];
+  recoveryConsiderations: string[];
+  clinicalStatus:
+    | "appropriate"
+    | "not-appropriate"
+    | "needs-specialist-review"
+    | "insufficient-information";
+  availability:
+    | "available-here"
+    | "referral-available"
+    | "research-only"
+    | "unknown";
+  evidence: Array<{
+    id: string;
+    title: string;
+    url: string;
+    jurisdiction: string;
+    evidenceStrength: "high" | "moderate" | "low" | "very-low" | "not-rated";
+    regulatoryStatus: string;
+  }>;
+}
+
 export interface ConsentWorkflowSnapshot {
   source: WorkflowSource;
   connected: boolean;
@@ -38,6 +66,14 @@ export interface ConsentWorkflowSnapshot {
   taskStatus: "requested" | "in-progress" | "on-hold" | "completed";
   consentStatus: "draft" | "active";
   clinicianEscalation: ClinicianEscalationStatus;
+  workflowStatus?: "preparing" | "educating" | "review" | "ready" | "completed";
+  optionSnapshotStale?: boolean;
+  optionSnapshotVersion?: string;
+  optionCatalogVersion?: string;
+  optionSourceCoverage?: string;
+  blockers?: string[];
+  treatmentOptions?: ConsentWorkflowTreatmentOption[];
+  diagnosticSummaries?: Array<{ reference: string; conclusion: string }>;
   concepts: Record<ComprehensionConceptId, TeachBackRecord>;
   unresolvedQuestions: string[];
   events: ConsentWorkflowEvent[];

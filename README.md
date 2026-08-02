@@ -57,8 +57,16 @@ npm install
 # Add it to .env for local Vinext/Cloudflare development.
 # The Deepgram key needs Member (or higher) permission for token grants.
 DEEPGRAM_API_KEY=your_deepgram_key
+MEDPLUM_BASE_URL=https://api.medplum.com/
+MEDPLUM_CLIENT_ID=your_client_id
+MEDPLUM_CLIENT_SECRET=your_client_secret
 
 npm run dev
+
+# Option-aware Medplum workflow
+npm run medplum:deploy
+npm run medplum:seed
+npm run medplum:smoke:prepare
 
 # Before pushing
 npm run lint
@@ -227,7 +235,7 @@ The teach-back evaluator classifies each required concept as:
 
 Critical concepts cannot be silently inferred. Low confidence or contradiction triggers clarification or human review.
 
-`GET/POST /api/consent-workflow` is a same-origin, server-only Medplum adapter. When client credentials are configured, it hydrates the patient, ServiceRequest, affected side, Task, Questionnaire, QuestionnaireResponse, Consent, clinician-review Task, and Provenance events; a teach-back POST immutably updates the QuestionnaireResponse and recomputes workflow rules before returning. The endpoint never completes a QuestionnaireResponse or activates Consent. When Medplum credentials are absent, the UI says **Demo cache** and persists the synthetic workflow locally so refresh and the full educational walkthrough still work without pretending that FHIR is connected.
+`GET/POST /api/consent-workflow` is a same-origin, server-only Medplum adapter. When client credentials are configured, it prefers the option-aware session read model and returns the versioned treatment catalog, patient-specific option snapshot, diagnostic summary, workflow blockers, Task state, comprehension results, and audit events through the existing frontend contract. A teach-back POST records a completed or amended QuestionnaireResponse and invokes the assessment Bot, which recomputes workflow rules and creates clinician review when required; only the guarded workflow can eventually activate Consent. The older session model remains available as a compatibility fallback. When Medplum credentials are absent, the UI says **Demo cache** and persists the synthetic workflow locally so refresh and the full educational walkthrough still work without pretending that FHIR is connected.
 
 ## Sponsor technology
 
