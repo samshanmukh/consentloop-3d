@@ -50,7 +50,7 @@ test("agent configuration is grounded and exposes client-side tools only", () =>
     voiceToolNames,
   );
   assert.ok(voiceToolDefinitions.every((tool) => !("endpoint" in tool)));
-  assert.match(consentGuidePrompt, /Jordan Lee/);
+  assert.match(consentGuidePrompt, /Sam Lee/);
   assert.match(consentGuidePrompt, /\$2,045–\$3,120/);
   assert.match(consentGuidePrompt, /Do not diagnose/);
   assert.match(consentGuidePrompt, /preference is not consent/i);

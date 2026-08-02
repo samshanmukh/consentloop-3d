@@ -105,7 +105,7 @@ async function findDemoPatient(medplum: MedplumClient): Promise<Patient | null> 
     _count: 20,
   });
   return (
-    patients.find((candidate) => patientDisplayName(candidate) === "Jordan Lee") ??
+    patients.find((candidate) => patientDisplayName(candidate) === "Sam Lee") ??
     patients[0] ??
     null
   );

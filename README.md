@@ -40,7 +40,7 @@ ConsentLoop assists informed-consent education and workflow management. It does 
 
 ## Interactive UI demo
 
-The repository now includes a complete synthetic patient frontend for Jordan Lee's knee-arthroscopy journey. It contains seven responsive views: overview, interactive 3D procedure, option comparison, timeline and recovery planning, cost details, teach-back, and clinician-review handoff. A persistent Deepgram voice guide can explain the synthetic scenario, open any of those views, and control the 3D model with patient-friendly commands.
+The repository now includes a complete synthetic patient frontend for Sam Lee's knee-arthroscopy journey. It contains seven responsive views: overview, interactive 3D procedure, option comparison, timeline and recovery planning, cost details, teach-back, and clinician-review handoff. A persistent Deepgram voice guide can explain the synthetic scenario, open any of those views, and control the 3D model with patient-friendly commands.
 
 The 3D viewer now begins with a pearl-white, translucent whole-person model, marks the patient’s right knee, and smoothly travels into the existing separately detailed knee model without rebuilding or downgrading it. Patients can choose front, back, left, right, or three-quarter views; drag to rotate; scroll or pinch to zoom; enter full screen; follow approved procedure steps; or return to the full body at any time. Subtle breathing, sway, and idle rotation stop under reduced-motion preferences. A styled static body-and-knee fallback keeps the educational flow usable when WebGL or a model asset fails.
 
@@ -106,13 +106,13 @@ Patients can mark an option as **preferred**, **not preferred**, or **unsure**; 
 
 ### Realistic patient scenario
 
-Jordan is a synthetic 42-year-old warehouse supervisor with a meniscus tear. The orthopedist has determined that three paths are reasonable for this case:
+Sam is a synthetic 42-year-old warehouse supervisor with a meniscus tear. The orthopedist has determined that three paths are reasonable for this case:
 
 1. Continue physical therapy for six more weeks and reassess.
 2. Schedule arthroscopy with possible partial meniscectomy if the damaged tissue is not repairable.
 3. Schedule arthroscopy with meniscus repair if the tissue is repairable, accepting a longer protected recovery.
 
-Jordan needs to stand at work, cares for a child on alternate weeks, has a family wedding in five weeks, and has not met the annual deductible. ConsentLoop turns those facts into questions and a side-by-side planning view rather than a recommendation.
+Sam needs to stand at work, cares for a child on alternate weeks, has a family wedding in five weeks, and has not met the annual deductible. ConsentLoop turns those facts into questions and a side-by-side planning view rather than a recommendation.
 
 | Option | Example timeline | Example recovery | Example cost presentation |
 | --- | --- | --- | --- |

@@ -1416,7 +1416,7 @@ WHOLE-KNEE MISCONCEPTION SEQUENCE
 - After the comparison tool succeeds, speak only the returned narration.text. Then call play_procedure_step with knee-arthroscopy and patient-teachback. After it succeeds, speak only its returned narration.text, then stop and wait for the patient's answer.
 - Do not grade the answer yourself or claim it was recorded. The ConsentLoop application and Medplum workflow assess and store the response. If the app reports that the answer remains incorrect or uncertain, keep the issue unresolved and offer clinician review.
 
-Begin with this greeting, then wait: "Hi Jordan, I’m your consent guide. I can explain the options Dr. Chen prepared and move the 3D model as we talk. I don’t choose a treatment or replace your care team. You can interrupt me or ask for a person at any time. Where would you like to start?"`;
+Begin with this greeting, then wait: "Hi Sam, I’m your consent guide. I can explain the options Dr. Chen prepared and move the 3D model as we talk. I don’t choose a treatment or replace your care team. You can interrupt me or ask for a person at any time. Where would you like to start?"`;
 
 export const voiceToolDefinitions = [
   {
@@ -1625,7 +1625,7 @@ export const consentGuideAgentConfig = {
     },
   },
   greeting:
-    "Hi Jordan, I’m your consent guide. I can explain the options Dr. Chen prepared and move the 3D model as we talk. I don’t choose a treatment or replace your care team. You can interrupt me or ask for a person at any time. Where would you like to start?",
+    "Hi Sam, I’m your consent guide. I can explain the options Dr. Chen prepared and move the 3D model as we talk. I don’t choose a treatment or replace your care team. You can interrupt me or ask for a person at any time. Where would you like to start?",
 } satisfies AgentSettingsObject;
 
 type FetchLike = (

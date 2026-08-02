@@ -43,7 +43,7 @@ function seedFakeMedplum(options: { completed?: boolean } = {}) {
     resourceType: "Patient",
     id: "patient-1",
     meta: { tag: [SEED_TAG], lastUpdated: "2026-08-01T12:00:00.000Z" },
-    name: [{ given: ["Jordan"], family: "Lee" }],
+    name: [{ given: ["Sam"], family: "Lee" }],
   };
   const serviceRequest: ServiceRequest = {
     resourceType: "ServiceRequest",

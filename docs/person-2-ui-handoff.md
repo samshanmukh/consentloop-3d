@@ -16,7 +16,7 @@ reachable views:
 6. Teach-back
 7. Review and FHIR event summary
 
-The demo uses Jordan Lee's synthetic right-meniscus scenario. Patient
+The demo uses Sam Lee's synthetic right-meniscus scenario. Patient
 preferences, estimate acknowledgement, live voice-session state, and other
 non-clinical demo interactions remain local UI state. Teach-back results use
 the server-only Medplum workflow endpoint when credentials are configured and

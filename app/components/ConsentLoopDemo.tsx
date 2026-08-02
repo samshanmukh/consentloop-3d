@@ -223,7 +223,7 @@ function OverviewView({ onNavigate }: { onNavigate: (view: JourneyView) => void 
           <StatusPill tone="green">
             <ShieldCheck size={14} /> Synthetic demo · no real patient data
           </StatusPill>
-          <h2>Good morning, Jordan.</h2>
+          <h2>Good morning, Sam.</h2>
           <p>
             Dr. Chen has prepared three care paths for your right meniscus tear.
             Start with the 3D explanation, then compare what each path means for
