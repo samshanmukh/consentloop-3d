@@ -8,7 +8,7 @@ export function loadEnv(): void {
 }
 
 export function requireEnv(keys: string[]): void {
-  const missing = keys.filter((k) => !process.env[k]);
+  const missing = keys.filter((key) => !process.env[key]);
   if (missing.length > 0) {
     throw new Error(
       `Missing required env var(s): ${missing.join(", ")}. Copy .env.local.example to .env.local and fill them in.`
