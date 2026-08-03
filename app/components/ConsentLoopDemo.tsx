@@ -1211,6 +1211,7 @@ export function ConsentLoopDemo() {
     therapy: null,
     trim: "preferred",
     repair: "unsure",
+    regenerative: null,
   });
   const [estimateAcknowledged, setEstimateAcknowledged] = useState(false);
   const pendingVoiceMessage = useRef<string | null>(null);

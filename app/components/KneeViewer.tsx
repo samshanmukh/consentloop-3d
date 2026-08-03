@@ -384,6 +384,20 @@ function FullBodyModel({
   return (
     <group>
       <group ref={animatedGroup}>
+        {/* The BodyParts3D muscle subset has no complete cranial silhouette. */}
+        <mesh position={[0, 2.68, 0.12]} scale={[0.4, 0.52, 0.38]}>
+          <sphereGeometry args={[1, 40, 40]} />
+          <meshPhysicalMaterial
+            color="#dbe5ed"
+            roughness={0.34}
+            clearcoat={0.52}
+            emissive="#6f9fc8"
+            emissiveIntensity={0.1}
+            transparent
+            opacity={bodyOpacityTarget}
+            depthWrite={bodyOpacityTarget > 0.45}
+          />
+        </mesh>
         <mesh geometry={bodyGeometry}>
           <meshPhysicalMaterial
             ref={bodyMaterial}

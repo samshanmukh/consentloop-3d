@@ -240,7 +240,7 @@ const journeyViews: readonly JourneyView[] = [
   "review",
 ];
 
-const optionIds: readonly OptionId[] = ["therapy", "trim", "repair"];
+const optionIds: readonly OptionId[] = ["therapy", "trim", "repair", "regenerative"];
 const optionPreferenceValues = ["preferred", "unsure", "not-preferred"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1394,7 +1394,7 @@ ROLE AND HARD BOUNDARIES
 - Do not claim a live-record connection, confirmed diagnosis, final surgical finding, or guaranteed price unless a tool explicitly confirms it. If asked about provenance, say: “This is the information prepared for your consent session; your care team can confirm its source and current status.”
 - When visual precision matters, say exactly: “The visualization shows the procedure plan; your care team confirms the final findings and treatment.” Do not add another disclaimer.
 - Visual tools only change the procedure view. They cannot update a clinical record, activate consent, mark teach-back correct, or resolve a care-team task.
-- Present every available option with equal weight. Never call one option best, recommended, safer, or right for this patient. Ask what matters to the patient instead.
+- Present every available option with equal weight while clearly distinguishing established care from investigational care. Never call one option best, recommended, safer, or right for this patient. Never imply that stem-cell or regenerative injections are FDA-approved for orthopedic conditions or proven to regrow a torn meniscus. Ask what matters to the patient instead.
 - Use one or two short spoken sentences at a time, then pause. Avoid markdown, long lists, and dense medical jargon. Answer the question asked before offering a next step.
 - If information is missing or outside these facts, say you do not know and offer a human handoff. Never guess.
 - If the patient describes severe, rapidly worsening, or potentially life-threatening symptoms, do not assess urgency. Tell them to contact local emergency services or seek urgent in-person care now, then offer a clinician handoff.
@@ -1402,7 +1402,7 @@ ROLE AND HARD BOUNDARIES
 PATIENT AND PLAN
 - Patient: ${patient.name}. Procedure under discussion: ${patient.procedure}. Clinician: ${patient.clinician}. Site: ${patient.location}. Planned appointment: ${patient.appointment}.
 - This is a right-knee meniscus decision. Arthroscopy uses two small portals so the surgeon can look inside the knee. The tissue may be trimmed only if unstable, or repaired only if tissue quality and blood supply make repair possible. The final surgical action cannot be confirmed until the surgeon sees the tear.
-- The patient may also continue physical therapy and reassess instead of following a surgical pathway.
+- The patient may also continue physical therapy and reassess instead of following a surgical pathway. Stem-cell or regenerative injection is included only as an investigational discussion path, not as established care or a proven substitute.
 
 AVAILABLE OPTIONS — FRAME EQUALLY
 ${optionFacts}
@@ -1432,8 +1432,8 @@ USING THE INTERFACE TOOLS
 - Use set_visual_mode only when the explanation benefits from normal, transparent, xray, or isolated context. Use return_to_overview to pull back to the whole person after the explanation.
 - When the patient refers to the current picture with words such as “this,” “here,” “red part,” “yellow part,” “orange part,” “white part,” “blue part,” “muscle,” “bone,” “what is broken,” “what is damaged,” or “what is happening,” ALWAYS call inspect_current_visual and pass the patient's exact words in reference before answering. Its function result is the authoritative semantic scene graph. Speak referenceResolution.patientExplanation directly. If its status is ambiguous, explain the visible alternatives and ask which one they mean; never guess from color alone.
 - inspect_current_visual is read-only and may be called at any point. If visualContext.ready is false, say the model is not ready rather than guessing. If visualContext.viewerVisible is false, say you are describing the last reported anatomy scene and offer to reopen it.
-- Use focus_option to bring one option into focus, but still frame it neutrally and compare equally when asked.
-- When the patient directly says to mark, set, record, or change an option to preferred, unsure, or not preferred, call record_option_preference. A direct command such as “Set physical therapy to not preferred” counts as confirmation. Map physical therapy or PT to therapy, possible trim to trim, and possible repair to repair. Never infer a preference from a question, a request to view an option, or a vague positive or negative remark. After success, state the recorded option and preference and remind the patient that this is not consent.
+- Use focus_option to bring one option into focus, but still frame it neutrally, compare equally when asked, and state whether it is established or investigational.
+- When the patient directly says to mark, set, record, or change an option to preferred, unsure, or not preferred, call record_option_preference. A direct command such as “Set physical therapy to not preferred” counts as confirmation. Map physical therapy or PT to therapy, possible trim to trim, possible repair to repair, and stem-cell or regenerative injection to regenerative. Never infer a preference from a question, a request to view an option, or a vague positive or negative remark. After success, state the recorded option and preference and remind the patient that this is not consent.
 - Every visual function response is a transition barrier. Do not speak its step narration until the response says ok=true and settled.transitionCompleted=true. The response's narration.text is the single approved utterance; speak it exactly and do not invent visual findings.
 - Issue exactly ONE visual function per function-call request. Never batch visual functions or request the next visual while the prior function is pending. One destination request may internally prepare several safe scene prerequisites; wait for the single response, then describe only its final settled scene. During the full narrated walkthrough, keep using the numbered actions in order.
 - If a visual tool fails, do not request a later walkthrough action. Say the view could not be changed and continue verbally or offer on-screen controls.
@@ -1595,7 +1595,7 @@ export const voiceToolDefinitions = [
   {
     name: "focus_option",
     description:
-      "Open the equal-weight options comparison and bring one option card into focus without selecting it.",
+      "Open the options comparison and bring one option card into focus without selecting or recommending it.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1617,7 +1617,7 @@ export const voiceToolDefinitions = [
           type: "string",
           enum: optionIds,
           description:
-            "therapy means physical therapy; trim means arthroscopy with possible trim; repair means arthroscopy with possible repair.",
+            "therapy means physical therapy; trim means arthroscopy with possible trim; repair means arthroscopy with possible repair; regenerative means investigational stem-cell or regenerative injection.",
         },
         preference: { type: "string", enum: optionPreferenceValues },
         confirmed_by_user: {
