@@ -183,7 +183,7 @@ export const kneeArthroscopyProcedure: ProcedureVisualization = {
         target: "tear",
         state: "procedure",
         visualMode: "isolated",
-        highlight: { structureId: "meniscus-tear", color: "orange" },
+        highlight: { structureId: "meniscus-tear", color: "red" },
       },
     }),
     step({
@@ -229,7 +229,7 @@ export const kneeArthroscopyProcedure: ProcedureVisualization = {
       id: "important-risk",
       title: "Important risk area",
       narration:
-        "The small access sites can have risks such as infection. This illustration is educational and not a patient-specific prediction.",
+        "The small access sites can have risks such as infection. Your care team can explain how they reduce and monitor this risk.",
       requiredConceptId: "risk-limitation",
       render: {
         stage: "scope",
@@ -244,8 +244,6 @@ export const kneeArthroscopyProcedure: ProcedureVisualization = {
       narration:
         "This is not a whole-knee replacement. The complete joint is shown faintly in red while the much smaller meniscus area is orange.",
       requiredConceptId: "tissue-treated",
-      patientQuestionPrompt:
-        "In your own words, what part of the knee may be treated?",
       render: {
         stage: "treatment",
         target: "meniscus",

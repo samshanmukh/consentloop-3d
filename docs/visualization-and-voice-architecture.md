@@ -39,7 +39,7 @@ Manual rotate, zoom, and idle-rotation controls use the same controller through 
 1. BodyParts3D is Draco-compressed, normalized, merged to one geometry, and rendered as pearl/cool-gray translucent anatomy with an inexpensive blue internal impression. A configured overlay marks the right knee.
 2. The existing Open3DModel knee stays intact and lazily mounts for detailed steps. Its established bone, cartilage, ligament, meniscus, tear, scope, treatment, and recovery behavior is driven by a projection of the controller snapshot.
 
-During entry the controller first focuses the configured region, then moves the camera to the region preset while the body fades toward 12% and the detailed knee fades in. Return reverses the blend before the detailed layer unmounts. Reduced-motion users receive immediate state changes with breathing, sway, pulsing, and automatic rotation suppressed. A styled static silhouette with a right-knee marker catches WebGL and asset errors.
+During entry the controller first focuses the configured region. The renderer holds the whole-body framing long enough for the blue right-knee pulse to register, moves the camera to the region preset, clears the body and marker through a short empty handoff frame, and only then mounts the detailed knee. The body and detailed model are mutually exclusive; there is no persistent crossfade or anatomical overlap. Return uses the same exclusive handoff in reverse. Reduced-motion users keep the scene separation with only a minimal handoff frame and no breathing, sway, pulsing, or automatic rotation. A styled static silhouette with a right-knee marker catches WebGL and asset errors.
 
 ## Deepgram tools
 
@@ -53,7 +53,13 @@ During entry the controller first focuses the configured region, then moves the 
 - `set_visual_mode(mode)`
 - `return_to_overview()`
 
-`voiceToolToVisualizationCommand` is the only voice-to-renderer adapter. All arguments are allowlisted twice: first when the Deepgram wire call is normalized, then when the controller executes it. Nonvisual tools may still open a consent section, focus an equal-weight option card, or prepare a confirmed human handoff.
+The read-only `inspect_current_visual()` tool sits beside those seven renderer
+commands. It returns the current scene, active procedure step, actually visible
+highlights, patient-facing color meaning, and approved anatomy facts. Deictic
+questions such as “what is this?” or “what is the yellow part?” must inspect
+the scene before the agent answers.
+
+`voiceToolToVisualizationCommand` remains the narrow voice-to-renderer adapter, while `planVoiceVisualizationCommands` turns one requested destination into a safe serialized plan. All arguments are allowlisted twice: first when the Deepgram wire call is normalized, then when the controller executes it. If a direct request arrives while the viewer is in an incompatible scene, the planner automatically restores the whole-body overview, focuses the right knee, enters the detailed procedure, and then applies the requested approved step. The bridge acknowledges every intermediate body or knee layer, including in reduced-motion mode, but Deepgram receives one final settled tool result and narrates only the requested destination. The full walkthrough still advances in its configured order, one narrated turn at a time; direct revisits and clarifications no longer surface avoidable sequencing errors. Voice-triggered completion remains rejected and application-controlled after assessed teach-back. The next visual stays blocked until audio playback finishes or the patient interrupts. Nonvisual tools may still open a consent section, focus an equal-weight option card, or prepare a confirmed human handoff.
 
 The whole-knee misconception is a configured sequence rather than model-generated behavior. `misconception-comparison` renders the complete joint faint red and the possible treated meniscus orange. `patient-teachback` asks the approved prompt and waits. The application then records an `understood`, `contradicted`, or `uncertain` result; visual tools cannot grade or store it.
 

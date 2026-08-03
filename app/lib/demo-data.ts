@@ -40,7 +40,7 @@ export interface JourneyNavItem {
 }
 
 export const patient = {
-  name: "Jordan Lee",
+  name: "Sam Lee",
   initials: "JL",
   procedure: "Right knee arthroscopy",
   clinician: "Dr. Maya Chen",

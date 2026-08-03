@@ -44,6 +44,51 @@ export interface VisualizationSnapshot {
   revision: number;
 }
 
+export type VisualizationSceneLayer = "body" | "handoff" | "knee";
+export type VisualizationCameraPhase =
+  | "body-overview"
+  | "body-region"
+  | "knee-detail";
+
+export interface VisualizationRenderCommit {
+  layer: VisualizationSceneLayer;
+  phase: VisualizationCameraPhase;
+  revision: number;
+  visualState: VisualizationState;
+  bodyAssetReady: boolean;
+}
+
+export function getExpectedVisualizationRenderCommit(
+  state: VisualizationSnapshot,
+): VisualizationRenderCommit {
+  return {
+    layer: state.viewMode === "body" ? "body" : "knee",
+    phase:
+      state.viewMode === "knee"
+        ? "knee-detail"
+        : state.target === "body"
+          ? "body-overview"
+          : "body-region",
+    revision: state.revision,
+    visualState: state.visualState,
+    bodyAssetReady: state.viewMode === "body",
+  };
+}
+
+export function isVisualizationRenderCommitSatisfied(
+  actual: VisualizationRenderCommit | null,
+  expected: VisualizationRenderCommit,
+): boolean {
+  return Boolean(
+    actual &&
+      actual.layer === expected.layer &&
+      actual.phase === expected.phase &&
+      actual.revision === expected.revision &&
+      actual.visualState === expected.visualState &&
+      (expected.layer !== "body" || actual.bodyAssetReady),
+  );
+}
+
 export const initialVisualizationSnapshot: VisualizationSnapshot = {
   visualState: "loading",
   bodyView: "three-quarter",
@@ -72,6 +117,8 @@ export type VisualizationControlCommand =
 
 export type VisualizationRejectCode =
   | "INVALID_COMMAND"
+  | "INVALID_SEQUENCE"
+  | "TRANSITION_TIMEOUT"
   | "UNKNOWN_REGION"
   | "UNKNOWN_PROCEDURE"
   | "UNKNOWN_STEP"
@@ -242,6 +289,18 @@ export function executeVisualizationCommand(
     }
     case "ENTER_PROCEDURE": {
       const procedure = procedureVisualizations[command.procedureId];
+      const regionFocused =
+        state.viewMode === "body" &&
+        state.target === "knee" &&
+        state.activeRegionId === procedure.regionId &&
+        state.stepId === "affected-knee";
+      if (!regionFocused) {
+        return {
+          ok: false,
+          code: "INVALID_SEQUENCE",
+          error: `Focus ${bodyRegions[procedure.regionId].label.toLowerCase()} before entering the procedure detail.`,
+        };
+      }
       return {
         ok: true,
         transitionMs: 1_200,
@@ -259,7 +318,9 @@ export function executeVisualizationCommand(
           highlights: [{ structureId: "whole-knee", color: "blue" }],
           comparison: false,
           completedStepIds: addCompletedStep(state),
-          zoom: 1,
+          // Continue inward from the region-focus framing instead of jumping
+          // back out as the detailed knee replaces the body model.
+          zoom: Math.max(state.zoom, 1.32),
           revision: nextRevision(state),
         },
       };
@@ -267,6 +328,21 @@ export function executeVisualizationCommand(
     case "PLAY_PROCEDURE_STEP": {
       const procedureStep = getProcedureStep(command.procedureId, command.stepId)!;
       const bodyStep = command.stepId === "body-overview" || command.stepId === "affected-knee";
+      const procedure = procedureVisualizations[command.procedureId];
+      const procedureReady =
+        state.viewMode === "knee" &&
+        state.visualState !== "entering-procedure" &&
+        state.procedureId === command.procedureId &&
+        state.activeRegionId === procedure.regionId &&
+        state.stepId !== "body-overview" &&
+        state.stepId !== "affected-knee";
+      if (!bodyStep && !procedureReady) {
+        return {
+          ok: false,
+          code: "INVALID_SEQUENCE",
+          error: `Focus ${bodyRegions[procedure.regionId].label.toLowerCase()} and enter the procedure before playing detailed steps.`,
+        };
+      }
       return {
         ok: true,
         transitionMs: bodyStep ? 850 : 600,
@@ -284,6 +360,12 @@ export function executeVisualizationCommand(
           highlights: procedureStep.render.highlight ? [procedureStep.render.highlight] : state.highlights,
           comparison: procedureStep.render.comparison ?? false,
           completedStepIds: addCompletedStep(state),
+          zoom:
+            command.stepId === "body-overview"
+              ? 1
+              : command.stepId === "affected-knee"
+                ? Math.max(state.zoom, 1.14)
+                : Math.max(state.zoom, 1.32),
           revision: nextRevision(state),
         },
       };

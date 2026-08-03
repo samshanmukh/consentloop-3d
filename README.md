@@ -40,11 +40,11 @@ ConsentLoop assists informed-consent education and workflow management. It does 
 
 ## Interactive UI demo
 
-The repository now includes a complete synthetic patient frontend for Jordan Lee's knee-arthroscopy journey. It contains seven responsive views: overview, interactive 3D procedure, option comparison, timeline and recovery planning, cost details, teach-back, and clinician-review handoff. A persistent Deepgram voice guide can explain the synthetic scenario, open any of those views, and control the 3D model with patient-friendly commands.
+The repository now includes a complete synthetic patient frontend for Sam Lee's knee-arthroscopy journey. It contains seven responsive views: overview, interactive 3D procedure, option comparison, timeline and recovery planning, cost details, teach-back, and clinician-review handoff. A persistent Deepgram voice guide can explain the synthetic scenario, open any of those views, and control the 3D model with patient-friendly commands.
 
 The 3D viewer now begins with a pearl-white, translucent whole-person model, marks the patient’s right knee, and smoothly travels into the existing separately detailed knee model without rebuilding or downgrading it. Patients can choose front, back, left, right, or three-quarter views; drag to rotate; scroll or pinch to zoom; enter full screen; follow approved procedure steps; or return to the full body at any time. Subtle breathing, sway, and idle rotation stop under reduced-motion preferences. A styled static body-and-knee fallback keeps the educational flow usable when WebGL or a model asset fails.
 
-Every visual mutation now passes through one runtime-validated `VisualizationCommand` controller. Manual controls, the seven Deepgram visual tools, the legacy `consentLoop.viz-command.v1` bridge, and the team’s frozen `SceneCommand` adapter all delegate to the same serialized queue. Voice tool results resolve only after the associated camera/crossfade transition settles, so narration can stay synchronized with what the patient sees.
+Every visual mutation now passes through one runtime-validated `VisualizationCommand` controller. Manual controls, the seven Deepgram visual tools, the legacy `consentLoop.viz-command.v1` bridge, and the team’s frozen `SceneCommand` adapter all delegate to the same serialized queue. Voice tool results resolve only after the associated highlight, camera, and exclusive scene handoff settles, so narration stays synchronized with what the patient sees.
 
 See [Person 2 UI handoff](docs/person-2-ui-handoff.md) for the data boundaries, voice command examples, model attribution, and integration checklist.
 See [Visualization and voice architecture](docs/visualization-and-voice-architecture.md) for the controller contract, procedure pack schema, Medplum synchronization, and instructions for adding another procedure.
@@ -57,8 +57,16 @@ npm install
 # Add it to .env for local Vinext/Cloudflare development.
 # The Deepgram key needs Member (or higher) permission for token grants.
 DEEPGRAM_API_KEY=your_deepgram_key
+MEDPLUM_BASE_URL=https://api.medplum.com/
+MEDPLUM_CLIENT_ID=your_client_id
+MEDPLUM_CLIENT_SECRET=your_client_secret
 
 npm run dev
+
+# Option-aware Medplum workflow
+npm run medplum:deploy
+npm run medplum:seed
+npm run medplum:smoke:prepare
 
 # Before pushing
 npm run lint
@@ -106,13 +114,13 @@ Patients can mark an option as **preferred**, **not preferred**, or **unsure**; 
 
 ### Realistic patient scenario
 
-Jordan is a synthetic 42-year-old warehouse supervisor with a meniscus tear. The orthopedist has determined that three paths are reasonable for this case:
+Sam is a synthetic 42-year-old warehouse supervisor with a meniscus tear. The orthopedist has determined that three paths are reasonable for this case:
 
 1. Continue physical therapy for six more weeks and reassess.
 2. Schedule arthroscopy with possible partial meniscectomy if the damaged tissue is not repairable.
 3. Schedule arthroscopy with meniscus repair if the tissue is repairable, accepting a longer protected recovery.
 
-Jordan needs to stand at work, cares for a child on alternate weeks, has a family wedding in five weeks, and has not met the annual deductible. ConsentLoop turns those facts into questions and a side-by-side planning view rather than a recommendation.
+Sam needs to stand at work, cares for a child on alternate weeks, has a family wedding in five weeks, and has not met the annual deductible. ConsentLoop turns those facts into questions and a side-by-side planning view rather than a recommendation.
 
 | Option | Example timeline | Example recovery | Example cost presentation |
 | --- | --- | --- | --- |
@@ -188,13 +196,13 @@ The 3D visualization is clinically linked, not decorative. Each required compreh
 | Nearby structures | Reveal adjacent cartilage, ligaments, and nerves |
 | Alternative treatment | Return to the untreated state and compare options |
 
-The implemented MVP uses React Three Fiber, Drei, and Three.js with two locally bundled GLB layers: a complete BodyParts3D model for orientation and the existing Open3DModel knee for close detail. The renderer merges the body’s 418 structures into one web-optimized draw mesh, recolors it as translucent pearl anatomy, anchors the knee detail with a data-driven `BodyRegion`, and keeps both layers mounted during entry and return crossfades. The detailed knee remains lazily loaded and retains its bones, cartilage, ligaments, meniscus, tear, camera path, treatment, and recovery overlays.
+The implemented MVP uses React Three Fiber, Drei, and Three.js with two locally bundled GLB scenes: a complete BodyParts3D model for orientation and the existing Open3DModel knee for close detail. The renderer merges the body’s 418 structures into one web-optimized draw mesh, recolors it as translucent pearl anatomy, and anchors the knee detail with a data-driven `BodyRegion`. Entry now holds the whole-body frame for a visible blue knee highlight, zooms to that region, uses a short empty handoff frame, and only then mounts the detailed knee. The body, marker, and knee model are mutually exclusive, so they never overlap. The detailed knee remains lazily loaded and retains its bones, cartilage, ligaments, meniscus, tear, camera path, treatment, and recovery overlays.
 
 `app/lib/procedure-visualization.ts` defines the approved right-knee region, camera presets, structures, visual modes, and 11-step knee-arthroscopy walkthrough. `app/lib/visualization-controller.ts` validates and reduces the exact high-level command union into a single snapshot containing the explicit loading, overview, focus, procedure, teach-back, misconception, clarification, clinician-review, and return states. Raw transcripts, mesh names, materials, camera coordinates, and DOM elements never cross the voice boundary.
 
 ## Voice and comprehension loop
 
-The patient UI now uses Deepgram's unified Voice Agent API for an interruption-friendly live conversation. A user must explicitly start the microphone. The persistent glass voice dock then shows real connection, listening, thinking, and speaking states; supports barge-in; displays live conversation text; accepts typed questions as an accessible alternative; and can be stopped at any time.
+The patient UI now uses Deepgram's unified Voice Agent API for an interruption-friendly live conversation. A user must explicitly start the microphone. The persistent glass voice dock then shows real connection, listening, thinking, and speaking states; supports barge-in; displays live conversation text; accepts typed questions as an accessible alternative; and can be stopped at any time. The right-knee walkthrough is deterministic: whole body, settled knee highlight, settled zoom/detail handoff, and then one configured procedure step per narration turn. Direct voice requests are destination-based: if the viewer is already in another scene, the application automatically returns to the whole body, highlights the right knee, enters the detailed model, and applies the requested approved step as one serialized, renderer-acknowledged plan. Voice-triggered completion remains rejected, and the next narrated walkthrough step cannot start until the prior narration finishes playing or the patient interrupts it. A read-only scene-inspection tool grounds questions such as “what is this yellow part?”, “what is damaged?”, and “what is happening here?” in the exact current model state, highlighted structure, and approved explanation.
 
 The Deepgram API key stays in the Cloudflare Worker. `GET /api/deepgram-token` exchanges it for a short-lived browser grant with same-origin checks, an isolate-local abuse limit, sanitized errors, and `Cache-Control: no-store`. The browser connects to Deepgram with that temporary token and receives no long-lived secret. The included limiter is appropriate only for this owner-only synthetic demo; a public or multi-user deployment must add authenticated app sessions and a durable, shared rate limit before issuing billable tokens.
 
@@ -227,7 +235,7 @@ The teach-back evaluator classifies each required concept as:
 
 Critical concepts cannot be silently inferred. Low confidence or contradiction triggers clarification or human review.
 
-`GET/POST /api/consent-workflow` is a same-origin, server-only Medplum adapter. When client credentials are configured, it hydrates the patient, ServiceRequest, affected side, Task, Questionnaire, QuestionnaireResponse, Consent, clinician-review Task, and Provenance events; a teach-back POST immutably updates the QuestionnaireResponse and recomputes workflow rules before returning. The endpoint never completes a QuestionnaireResponse or activates Consent. When Medplum credentials are absent, the UI says **Demo cache** and persists the synthetic workflow locally so refresh and the full educational walkthrough still work without pretending that FHIR is connected.
+`GET/POST /api/consent-workflow` is a same-origin, server-only Medplum adapter. When client credentials are configured, it prefers the option-aware session read model and returns the versioned treatment catalog, patient-specific option snapshot, diagnostic summary, workflow blockers, Task state, comprehension results, and audit events through the existing frontend contract. A teach-back POST records a completed or amended QuestionnaireResponse and invokes the assessment Bot, which recomputes workflow rules and creates clinician review when required; only the guarded workflow can eventually activate Consent. The older session model remains available as a compatibility fallback. When Medplum credentials are absent, the UI says **Demo cache** and persists the synthetic workflow locally so refresh and the full educational walkthrough still work without pretending that FHIR is connected.
 
 ## Sponsor technology
 

@@ -76,9 +76,13 @@ export function anatomyCommandToVisualizationControls(
         return [{ type: "SHOW_BODY_OVERVIEW" }];
       }
       if (command.target === "knee") {
-        return [{ type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" }];
+        return [
+          { type: "FOCUS_BODY_REGION", regionId: "right-knee" },
+          { type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" },
+        ];
       }
       return [
+        { type: "FOCUS_BODY_REGION", regionId: "right-knee" },
         { type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" },
         {
           type: "HIGHLIGHT_STRUCTURE",
@@ -97,6 +101,8 @@ export function anatomyCommandToVisualizationControls(
       return command.stage === "overview"
         ? [{ type: "SHOW_BODY_OVERVIEW" }]
         : [
+            { type: "FOCUS_BODY_REGION", regionId: "right-knee" },
+            { type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" },
             {
               type: "PLAY_PROCEDURE_STEP",
               procedureId: "knee-arthroscopy",

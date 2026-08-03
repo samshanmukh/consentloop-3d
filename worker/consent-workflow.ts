@@ -23,6 +23,11 @@ import {
   type ConsentWorkflowSnapshot,
   type TeachBackUpdate,
 } from "../app/lib/consent-workflow";
+import {
+  findOptionAwareSession,
+  optionAwareSessionToSnapshot,
+  recordOptionAwareTeachBack,
+} from "./medplum-option-workflow";
 
 export interface ConsentWorkflowEnv {
   MEDPLUM_BASE_URL?: string;
@@ -105,7 +110,7 @@ async function findDemoPatient(medplum: MedplumClient): Promise<Patient | null> 
     _count: 20,
   });
   return (
-    patients.find((candidate) => patientDisplayName(candidate) === "Jordan Lee") ??
+    patients.find((candidate) => patientDisplayName(candidate) === "Sam Lee") ??
     patients[0] ??
     null
   );
@@ -198,6 +203,10 @@ async function buildSnapshot(
 }
 
 async function loadSnapshot(medplum: MedplumClient) {
+  const optionAwareSession = await findOptionAwareSession(medplum);
+  if (optionAwareSession) {
+    return optionAwareSessionToSnapshot(optionAwareSession);
+  }
   const patient = await findDemoPatient(medplum);
   if (!patient) return null;
   return buildSnapshot(medplum, patient);
@@ -207,6 +216,10 @@ async function recordTeachBack(
   medplum: MedplumClient,
   update: TeachBackUpdate,
 ): Promise<ConsentWorkflowSnapshot | null> {
+  const optionAwareSession = await findOptionAwareSession(medplum);
+  if (optionAwareSession) {
+    return recordOptionAwareTeachBack(medplum, optionAwareSession, update);
+  }
   const patient = await findDemoPatient(medplum);
   if (!patient?.id) return null;
   const session = await getConsentSession(medplum, patient.id);

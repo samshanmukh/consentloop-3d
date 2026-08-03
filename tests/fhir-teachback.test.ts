@@ -120,7 +120,7 @@ test("FHIR fixtures match the patient UI and encode the affected side", () => {
   });
 
   assert.deepEqual(patient.name?.[0], {
-    given: ["Jordan"],
+    given: ["Sam"],
     family: "Lee",
   });
   assert.deepEqual(practitioner.name?.[0], {

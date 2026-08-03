@@ -16,7 +16,7 @@ reachable views:
 6. Teach-back
 7. Review and FHIR event summary
 
-The demo uses Jordan Lee's synthetic right-meniscus scenario. Patient
+The demo uses Sam Lee's synthetic right-meniscus scenario. Patient
 preferences, estimate acknowledgement, live voice-session state, and other
 non-clinical demo interactions remain local UI state. Teach-back results use
 the server-only Medplum workflow endpoint when credentials are configured and
@@ -77,7 +77,7 @@ connecting, listening, thinking, speaking, reconnecting, stopped, or error.
 Speech playback is interrupted when the user begins talking, and typed input
 is available without a microphone.
 
-The agent exposes seven read-only visualization tools plus three nonvisual UI
+The agent exposes seven constrained visualization tools plus four nonvisual UI
 tools:
 
 | Tool | UI effect | Explicit non-effect |
@@ -90,12 +90,16 @@ tools:
 | `highlight_structure` | Highlights an allowlisted structure using an allowlisted semantic color | Does not expose renderer materials |
 | `set_visual_mode` | Applies normal, transparent, x-ray, or isolated presentation | Does not change clinical data |
 | `return_to_overview` | Returns to the whole-body orientation scene | Does not complete education |
+| `inspect_current_visual` | Reads the exact visible step, highlighted structure, semantic color, and approved explanation | Does not change the scene or infer anatomy |
 | `focus_option` | Opens Options and highlights therapy, possible trim, or possible repair | Does not record a preference |
 | `request_human` | Prepares a clinician, scheduler, or financial-help handoff in the UI | Does not send, schedule, or authorize anything |
 
 Function responses are returned to Deepgram only after the local UI action is
 validated. Unknown functions and invalid arguments receive structured errors.
-The agent must call a tool before saying it changed the screen.
+The agent must call a tool before saying it changed the screen. Questions such
+as “what is this yellow part?”, “what is damaged?”, and “what is happening?”
+must call `inspect_current_visual` first so the spoken answer reflects the live
+renderer state instead of conversational memory.
 
 The primary viewer accepts a small high-level command union rather than a raw
 transcript, camera coordinate, or Three.js mesh name. The public controller
@@ -112,7 +116,9 @@ console.log(result?.status, result?.snapshot.visualState);
 ```
 
 Calls are serialized, runtime validated, and resolve after the visual
-transition settles. The controller snapshot is the only source of truth for
+transition settles. The right-knee path is enforced as whole body, focused
+knee, exclusive body-to-detail handoff, then one approved procedure step at a
+time. The body and detailed knee are never rendered together. The controller snapshot is the only source of truth for
 body view, selected region, procedure step, mode, highlight, comparison state,
 camera controls, completion, and revision. Capabilities are published at
 `window.consentLoopVisualization.capabilities`.

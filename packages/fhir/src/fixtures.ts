@@ -11,7 +11,7 @@ export function buildPatient(): Patient {
   return {
     resourceType: "Patient",
     meta: { tag: [SEED_TAG] },
-    name: [{ given: ["Jordan"], family: "Lee" }],
+    name: [{ given: ["Sam"], family: "Lee" }],
     gender: "unknown",
     birthDate: "1988-09-02",
     telecom: [{ system: "phone", value: "555-0199", use: "mobile" }],

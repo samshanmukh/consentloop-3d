@@ -161,8 +161,16 @@ test("viewer modes and shared body targets map to the right view", () => {
 
 test("legacy viewer commands delegate to the single high-level controller", () => {
   assert.deepEqual(
+    anatomyCommandToVisualizationControls({ type: "focus", target: "knee" }),
+    [
+      { type: "FOCUS_BODY_REGION", regionId: "right-knee" },
+      { type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" },
+    ],
+  );
+  assert.deepEqual(
     anatomyCommandToVisualizationControls({ type: "focus", target: "tear" }),
     [
+      { type: "FOCUS_BODY_REGION", regionId: "right-knee" },
       { type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" },
       {
         type: "HIGHLIGHT_STRUCTURE",
@@ -174,6 +182,8 @@ test("legacy viewer commands delegate to the single high-level controller", () =
   assert.deepEqual(
     anatomyCommandToVisualizationControls({ type: "set-stage", stage: "scope" }),
     [
+      { type: "FOCUS_BODY_REGION", regionId: "right-knee" },
+      { type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" },
       {
         type: "PLAY_PROCEDURE_STEP",
         procedureId: "knee-arthroscopy",
