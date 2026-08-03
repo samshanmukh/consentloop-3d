@@ -2,10 +2,14 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { handleDeepgramTokenRequest } from "./deepgram-token";
+import { handleConsentWorkflowRequest } from "./consent-workflow";
 
 interface Env {
   ASSETS: Fetcher;
   DEEPGRAM_API_KEY?: string;
+  MEDPLUM_BASE_URL?: string;
+  MEDPLUM_CLIENT_ID?: string;
+  MEDPLUM_CLIENT_SECRET?: string;
   DB: D1Database;
   IMAGES: {
     input(stream: ReadableStream): {
@@ -33,6 +37,10 @@ const worker = {
 
     if (url.pathname === "/api/deepgram-token") {
       return handleDeepgramTokenRequest(request, env);
+    }
+
+    if (url.pathname === "/api/consent-workflow") {
+      return handleConsentWorkflowRequest(request, env);
     }
 
     if (url.pathname === "/_vinext/image") {

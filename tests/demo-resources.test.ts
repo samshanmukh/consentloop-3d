@@ -32,11 +32,12 @@ test('seeds the complete synthetic journey idempotently', async () => {
   assert.equal(first.catalog.action?.length, 4);
 });
 
-test('contains no user identity or raw image payload', async () => {
+test('contains only the approved Sam demo identity and no raw image payload', async () => {
   const seeded = await seedDemo(new MemoryWriter());
   const serialized = JSON.stringify(seeded);
 
-  assert.equal(seeded.patient.name?.[0]?.family, 'Demo');
+  assert.deepEqual(seeded.patient.name?.[0]?.given, ['Sam']);
+  assert.equal(seeded.patient.name?.[0]?.family, 'Lee');
   assert.equal(seeded.mriStudy.series, undefined);
   assert.doesNotMatch(serialized, /siddharth|real patient|pixel data/iu);
 });

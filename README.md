@@ -44,11 +44,14 @@ ConsentLoop assists informed-consent education and workflow management. It does 
 
 ## Interactive UI demo
 
-The repository now includes a complete synthetic patient frontend for Jordan Lee's knee-arthroscopy journey. It contains seven responsive views: overview, interactive 3D procedure, option comparison, timeline and recovery planning, cost details, teach-back, and clinician-review handoff. A persistent Deepgram voice guide can explain the synthetic scenario, open any of those views, and control the 3D model with patient-friendly commands.
+The repository now includes a complete synthetic patient frontend for Sam Lee's knee-arthroscopy journey. It contains seven responsive views: overview, interactive 3D procedure, option comparison, timeline and recovery planning, cost details, teach-back, and clinician-review handoff. A persistent Deepgram voice guide can explain the synthetic scenario, open any of those views, and control the 3D model with patient-friendly commands.
 
-The 3D viewer now begins with a complete, locally bundled muscular-body model, marks the patient’s right knee, and smoothly moves from whole-person orientation into a separately detailed knee model. Patients can drag to rotate, scroll or pinch to zoom, use explicit zoom controls, enter full screen, or return to the full body at any time. Every voice-driven action has a manual equivalent. Person 3 can control the viewer through the versioned semantic `consentloop.viz-command.v1` browser contract; Person 1 can replace the typed demo fixtures with Medplum-backed adapters without changing the presentation components.
+The 3D viewer now begins with a pearl-white, translucent whole-person model, marks the patient’s right knee, and smoothly travels into the existing separately detailed knee model without rebuilding or downgrading it. Patients can choose front, back, left, right, or three-quarter views; drag to rotate; scroll or pinch to zoom; enter full screen; follow approved procedure steps; or return to the full body at any time. Subtle breathing, sway, and idle rotation stop under reduced-motion preferences. A styled static body-and-knee fallback keeps the educational flow usable when WebGL or a model asset fails.
+
+Every visual mutation now passes through one runtime-validated `VisualizationCommand` controller. Manual controls, the seven Deepgram visual tools, the legacy `consentLoop.viz-command.v1` bridge, and the team’s frozen `SceneCommand` adapter all delegate to the same serialized queue. Voice tool results resolve only after the associated highlight, camera, and exclusive scene handoff settles, so narration stays synchronized with what the patient sees.
 
 See [Person 2 UI handoff](docs/person-2-ui-handoff.md) for the data boundaries, voice command examples, model attribution, and integration checklist.
+See [Visualization and voice architecture](docs/visualization-and-voice-architecture.md) for the controller contract, procedure pack schema, Medplum synchronization, and instructions for adding another procedure.
 For the live Medplum setup and workflow commands, see the [Person 1 runbook](RUNBOOK-person1.md).
 
 ```bash
@@ -58,11 +61,20 @@ npm install
 # Add it to .env for local Vinext/Cloudflare development.
 # The Deepgram key needs Member (or higher) permission for token grants.
 DEEPGRAM_API_KEY=your_deepgram_key
+MEDPLUM_BASE_URL=https://api.medplum.com/
+MEDPLUM_CLIENT_ID=your_client_id
+MEDPLUM_CLIENT_SECRET=your_client_secret
 
 npm run dev
 
+# Option-aware Medplum workflow
+npm run medplum:deploy
+npm run medplum:seed
+npm run medplum:smoke:prepare
+
 # Before pushing
 npm run lint
+npm run typecheck
 npm test
 npm run selftest
 ```
@@ -110,9 +122,11 @@ Patients can mark an option as **preferred**, **not preferred**, or **unsure**; 
 
 ### Demo patient journey
 
-Arjun is a synthetic former semi-professional soccer player in India with persistent right-knee discomfort. An initial physical examination and X-ray do not explain the symptoms. After the symptoms continue, an MRI records a complex meniscal tear and additional knee findings. The first hospital discusses arthroscopy: repair the meniscus if the tissue is repairable, or remove only the damaged portion if it is not.
+Sam is a synthetic 42-year-old warehouse supervisor with persistent right-knee discomfort. An initial physical examination and X-ray do not explain the symptoms; a later MRI records a complex meniscal tear. The orthopedist identifies three local paths, while the sourced catalog also exposes a regenerative-medicine path for specialist and regulatory review rather than presenting it as routine care.
 
 ConsentLoop does not stop at that hospital's menu. It builds this sourced comparison and makes the missing questions visible:
+
+Sam needs to stand at work, cares for a child on alternate weeks, has a family wedding in five weeks, and has not met the annual deductible. ConsentLoop turns those facts into questions and a side-by-side planning view rather than a recommendation.
 
 | Path | Clinical status in the demo | Availability | What must be clarified |
 | --- | --- | --- | --- |
@@ -203,21 +217,30 @@ The 3D visualization is clinically linked, not decorative. Each required compreh
 | Nearby structures | Reveal adjacent cartilage, ligaments, and nerves |
 | Alternative treatment | Return to the untreated state and compare options |
 
-The implemented MVP uses React Three Fiber, Drei, and Three.js with two locally bundled GLB layers: a complete BodyParts3D muscular body for orientation and the Open3DModel knee for close detail. The renderer merges the body’s 418 structures into one web-optimized draw mesh, anchors the knee detail at the correct body location, provides semantic hotspots and smooth camera controls, and adds procedural arthroscopy overlays. Person 3 can send either the team's shared `SceneCommand` contract or the richer versioned `consentloop.viz-command.v1` commands; an explicit adapter keeps raw transcripts and mesh names out of the renderer.
+The implemented MVP uses React Three Fiber, Drei, and Three.js with two locally bundled GLB scenes: a complete BodyParts3D model for orientation and the existing Open3DModel knee for close detail. The renderer merges the body’s 418 structures into one web-optimized draw mesh, recolors it as translucent pearl anatomy, and anchors the knee detail with a data-driven `BodyRegion`. Entry now holds the whole-body frame for a visible blue knee highlight, zooms to that region, uses a short empty handoff frame, and only then mounts the detailed knee. The body, marker, and knee model are mutually exclusive, so they never overlap. The detailed knee remains lazily loaded and retains its bones, cartilage, ligaments, meniscus, tear, camera path, treatment, and recovery overlays.
+
+`app/lib/procedure-visualization.ts` defines the approved right-knee region, camera presets, structures, visual modes, and 11-step knee-arthroscopy walkthrough. `app/lib/visualization-controller.ts` validates and reduces the exact high-level command union into a single snapshot containing the explicit loading, overview, focus, procedure, teach-back, misconception, clarification, clinician-review, and return states. Raw transcripts, mesh names, materials, camera coordinates, and DOM elements never cross the voice boundary.
 
 ## Voice and comprehension loop
 
-The patient UI now uses Deepgram's unified Voice Agent API for an interruption-friendly live conversation. A user must explicitly start the microphone. The persistent glass voice dock then shows real connection, listening, thinking, and speaking states; supports barge-in; displays live conversation text; accepts typed questions as an accessible alternative; and can be stopped at any time.
+The patient UI now uses Deepgram's unified Voice Agent API for an interruption-friendly live conversation. A user must explicitly start the microphone. The persistent glass voice dock then shows real connection, listening, thinking, and speaking states; supports barge-in; displays live conversation text; accepts typed questions as an accessible alternative; and can be stopped at any time. The right-knee walkthrough is deterministic: whole body, settled knee highlight, settled zoom/detail handoff, and then one configured procedure step per narration turn. Direct voice requests are destination-based: if the viewer is already in another scene, the application automatically returns to the whole body, highlights the right knee, enters the detailed model, and applies the requested approved step as one serialized, renderer-acknowledged plan. Voice-triggered completion remains rejected, and the next narrated walkthrough step cannot start until the prior narration finishes playing or the patient interrupts it. A read-only scene-inspection tool grounds questions such as “what is this yellow part?”, “what is damaged?”, and “what is happening here?” in the exact current model state, highlighted structure, and approved explanation.
 
 The Deepgram API key stays in the Cloudflare Worker. `GET /api/deepgram-token` exchanges it for a short-lived browser grant with same-origin checks, an isolate-local abuse limit, sanitized errors, and `Cache-Control: no-store`. The browser connects to Deepgram with that temporary token and receives no long-lived secret. The included limiter is appropriate only for this owner-only synthetic demo; a public or multi-user deployment must add authenticated app sessions and a durable, shared rate limit before issuing billable tokens.
 
 Client-side voice tools are deliberately read-only. The agent can:
 
 - open Overview, Procedure, Options, Plan, Costs, Teach-back, or Review;
-- focus the whole body, right knee, meniscus, tear, ligaments, or camera portals;
-- preview orientation, tear, scope, possible treatment, or recovery scenes;
+- show an approved whole-body view;
+- focus the configured right-knee region;
+- enter the approved knee-arthroscopy procedure;
+- play one configured procedure step by ID;
+- highlight one allowlisted structure with an allowlisted semantic color;
+- set normal, transparent, x-ray, or isolated visual mode;
+- return to the whole-body overview;
 - focus one of the three clinician-approved option cards without recording a preference; and
 - prepare a human-help handoff without scheduling, signing, acknowledging, or sending anything on the patient's behalf.
+
+For the planned misconception, the agent may only select the configured `misconception-comparison` and `patient-teachback` steps. The first shows the complete joint faint red and the much smaller possible treatment area orange. A deterministic application assessment—not the language model’s opinion—records the patient’s answer. Contradiction or uncertainty keeps Consent draft, places the education Task on hold, and surfaces clinician review; a correction retains the original misconception in the QuestionnaireResponse and records the clarification.
 
 The system prompt is grounded in the same synthetic fixtures rendered on screen. It frames physical therapy, possible trimming, and possible repair with equal weight; identifies estimates and recovery periods as ranges; never recommends a treatment; and explicitly distinguishes preference from consent.
 
@@ -232,6 +255,8 @@ The teach-back evaluator classifies each required concept as:
 - `not-discussed`.
 
 Critical concepts cannot be silently inferred. Low confidence or contradiction triggers clarification or human review.
+
+`GET/POST /api/consent-workflow` is a same-origin, server-only Medplum adapter. When client credentials are configured, it prefers the option-aware session read model and returns the versioned treatment catalog, patient-specific option snapshot, diagnostic summary, workflow blockers, Task state, comprehension results, and audit events through the existing frontend contract. A teach-back POST records a completed or amended QuestionnaireResponse and invokes the assessment Bot, which recomputes workflow rules and creates clinician review when required; only the guarded workflow can eventually activate Consent. The older session model remains available as a compatibility fallback. When Medplum credentials are absent, the UI says **Demo cache** and persists the synthetic workflow locally so refresh and the full educational walkthrough still work without pretending that FHIR is connected.
 
 ## Sponsor technology
 
@@ -374,7 +399,7 @@ consentloop-3d/
 │   └── shared/              # Frozen cross-lane contracts and concept definitions
 ├── public/models/knee/      # Licensed GLB asset and attribution
 ├── scripts/                 # Seed, deploy, verify, reset, and self-test workflows
-├── worker/                  # Cloudflare/Vinext Worker entry point
+├── worker/                  # Cloudflare/Vinext entry, Deepgram grants, and Medplum adapter
 ├── docs/                    # UI and integration handoff notes
 ├── RUNBOOK-person1.md       # Live Medplum setup and troubleshooting
 └── README.md
@@ -418,18 +443,17 @@ The scripts use Node's native `.env` loading. `seed:demo` upserts the synthetic 
 2. Show the Subscription firing and the consent Task appearing.
 3. Open the patient link and begin the voice session.
 4. Show the initial examination, normal X-ray, and later MRI findings without having the app reinterpret the scan.
-5. Compare rehabilitation, repair, and partial meniscectomy using the same clinical categories.
-6. Reveal the evidence-labelled regenerative-medicine path even though the first hospital does not offer it.
+5. Compare rehabilitation, repair, and partial meniscectomy using the same clinical categories, then reveal the evidence-labelled regenerative-medicine specialist-review path.
+6. Add the wedding, standing-at-work requirement, caregiving schedule, and lack of first-night support.
 7. Request a specialist review and show that local unavailability is not recorded as clinical ineligibility.
 8. Compare timelines, recovery constraints, and synthetic itemized cost ranges without recommending a treatment.
-9. Record a preferred option and keep Consent blocked while the second-opinion question is unresolved.
-10. Let the agent guide the 3D procedure visualization.
-11. Ask, “Are you replacing my whole knee?”
-12. Give the intentionally incorrect teach-back.
-13. Show the misconception turn red and the Consent remain blocked.
-14. Let the agent focus the model on the meniscus and clarify.
-15. Give the corrected teach-back.
-16. Show the option snapshot, referral Task, `QuestionnaireResponse`, completed education Task, Consent transition, and audit trail in Medplum.
+9. Record a preferred option and keep Consent blocked while the unresolved question remains open.
+10. Begin on the slowly animated translucent body; switch front/back views and focus the right-knee marker.
+11. Let the agent travel into the detailed knee and play the approved anatomy, tear, portal, treatment, result, and risk steps.
+12. Ask, “Are you replacing my whole knee?” and show the whole joint faint red with the smaller treated meniscus orange.
+13. Give the intentionally incorrect teach-back and show the `QuestionnaireResponse`, held education Task, draft Consent, and clinician escalation.
+14. Let the guide focus the model on the meniscus and clarify, then give the corrected teach-back.
+15. Return to the full-body view and open Review to show the option snapshot, referral Task, completed education Task, Consent transition, and audit trail in Medplum.
 
 ## Success metrics
 

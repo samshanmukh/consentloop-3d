@@ -26,7 +26,7 @@ import { buildOptionCatalog } from './option-catalog.js';
 import { clinicianDemoAccessPolicy, patientSessionAccessPolicy } from './session-read-model.js';
 
 export const DEMO_IDENTIFIERS = {
-  patient: 'patient-arjun-synthetic',
+  patient: 'patient-sam-synthetic',
   practitioner: 'practitioner-maya-rao-synthetic',
   encounter: 'encounter-right-knee-evaluation',
   examination: 'observation-right-knee-exam',
@@ -104,7 +104,7 @@ function patientResource(): Patient {
   return {
     resourceType: 'Patient',
     active: true,
-    name: [{ use: 'official', family: 'Demo', given: ['Arjun'] }],
+    name: [{ use: 'official', family: 'Lee', given: ['Sam'] }],
     gender: 'unknown',
     communication: [{ language: { coding: [{ system: 'urn:ietf:bcp:47', code: 'en-IN', display: 'English (India)' }] }, preferred: true }],
   };

@@ -18,11 +18,13 @@ import {
   IDENTIFIER_SYSTEM,
   OPTION_CATALOG_URL,
   TAG_SYSTEM,
+  teachBackResultSchema,
   WORKFLOW_EXTENSION_URL,
   workflowBlockers,
   type ConsentEvent,
   type ConsentWorkflow,
   type OptionSnapshot,
+  type TeachBackResult,
 } from '../shared/index.js';
 import { getStringExtension } from './extensions.js';
 import { readOptionSnapshot } from './option-snapshot.js';
@@ -55,9 +57,13 @@ export interface SessionReadModel {
   status: ConsentWorkflow['status'];
   consentStatus: ConsentWorkflow['consentStatus'];
   stale: boolean;
+  optionSnapshotVersion: string;
+  catalogVersion: string;
+  sourceCoverage: string;
   blockers: string[];
   options: OptionSnapshot['options'];
   comprehension: ConsentWorkflow['concepts'];
+  teachBackResults: TeachBackResult[];
   diagnosticSummaries: { reference: string; conclusion: string }[];
   tasks: { id: string; status: Task['status']; description: string }[];
   events: ConsentEvent[];
@@ -121,6 +127,19 @@ function resourceIds(resources: SessionResources): Record<string, string> {
   };
 }
 
+function readTeachBackResults(response: QuestionnaireResponse): TeachBackResult[] {
+  return (response.item ?? []).flatMap((item) => {
+    const encoded = item.answer?.[0]?.valueString;
+    if (!encoded) return [];
+    try {
+      const parsed = teachBackResultSchema.safeParse(JSON.parse(encoded));
+      return parsed.success ? [parsed.data] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
 export function buildSessionReadModel(
   resources: SessionResources,
   viewer: { role: 'patient'; patientId: string } | { role: 'clinician' },
@@ -138,9 +157,13 @@ export function buildSessionReadModel(
     status: stale && state.status !== 'completed' ? 'review' : state.status,
     consentStatus: state.consentStatus,
     stale,
+    optionSnapshotVersion: snapshot.snapshotVersion,
+    catalogVersion: snapshot.catalogVersion,
+    sourceCoverage: snapshot.sourceCoverage,
     blockers,
     options: structuredClone(snapshot.options),
     comprehension: structuredClone(state.concepts),
+    teachBackResults: readTeachBackResults(resources.response),
     diagnosticSummaries: resources.diagnostics.map((report) => ({
       reference: `DiagnosticReport/${report.id}`,
       conclusion: report.conclusion ?? 'No conclusion recorded',

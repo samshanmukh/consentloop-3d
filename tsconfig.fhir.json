@@ -25,6 +25,8 @@
     "scripts/deploy-prepare.ts",
     "scripts/reset-demo.ts",
     "scripts/seed-demo.ts",
+    "scripts/reset-option-workflow.ts",
+    "scripts/seed-option-workflow.ts",
     "scripts/smoke-full.ts",
     "scripts/smoke-prepare.ts",
     "tests/assess-teachback.test.ts",

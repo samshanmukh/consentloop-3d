@@ -50,21 +50,23 @@ import type {
 } from "@consentloop/shared";
 import type {
   AnatomyState,
-  AnatomyTarget,
 } from "../lib/anatomy-commands";
-import type {
-  VizAction,
-  VizAtomicAction,
-  VizCommandV1,
-  VizTargetId,
-} from "../lib/viz-contract";
 import {
-  type AnatomyCameraAction,
-  type AnatomyVoiceTarget,
+  getCurrentVisualContext,
+  getNextApprovedVoiceAction,
+  getVoiceNarrationCue,
+  isVisualizationVoiceToolCall,
+  kneeArthroscopyVoiceWalkthrough,
+  planVoiceVisualizationCommands,
   type VoiceToolCall,
   type VoiceToolExecutionResult,
+  type VisualizationVoiceToolCall,
 } from "../lib/voice-agent";
-import { useConsentVoiceAgent } from "../hooks/useConsentVoiceAgent";
+import {
+  useConsentVoiceAgent,
+  type VoiceTranscriptEntry,
+} from "../hooks/useConsentVoiceAgent";
+import { useDeepgramDictation } from "../hooks/useDeepgramDictation";
 import {
   ConsentVoiceDock,
   type ConsentVoiceDockStatus,
@@ -79,6 +81,18 @@ import {
   type OptionId,
   type Preference,
 } from "../lib/demo-data";
+import {
+  createDefaultWorkflowSnapshot,
+  loadConsentWorkflow,
+  persistTeachBackUpdate,
+  type ConsentWorkflowSnapshot,
+  type TeachBackUpdate,
+} from "../lib/consent-workflow";
+import {
+  kneeArthroscopyProcedure,
+  type VisualizationCommand,
+} from "../lib/procedure-visualization";
+import type { VisualizationSnapshot } from "../lib/visualization-controller";
 
 const KneeViewer = dynamic(
   () => import("./KneeViewer").then((module) => module.KneeViewer),
@@ -207,10 +221,7 @@ function OverviewView({ onNavigate }: { onNavigate: (view: JourneyView) => void 
     <div className="overview-grid view-enter">
       <section className="glass-card overview-hero">
         <div className="hero-copy">
-          <StatusPill tone="green">
-            <ShieldCheck size={14} /> Synthetic demo · no real patient data
-          </StatusPill>
-          <h2>Good morning, Jordan.</h2>
+          <h2>Good morning, Sam.</h2>
           <p>
             Dr. Chen has prepared three care paths for your right meniscus tear.
             Start with the 3D explanation, then compare what each path means for
@@ -345,7 +356,8 @@ function VoiceGuidePanel({
       </div>
       <p className="voice-caption">
         The guide can explain this synthetic case, open any consent step, and
-        focus approved anatomy. It cannot recommend a treatment or record consent.
+        focus approved anatomy. It can record a preference you explicitly state,
+        but it cannot recommend a treatment or record consent.
       </p>
       <div className="prompt-list">
         {prompts.map((prompt) => (
@@ -366,52 +378,228 @@ function VoiceGuidePanel({
   );
 }
 
+function ConsentVisualizationStatus({
+  workflow,
+  visualization,
+}: {
+  workflow: ConsentWorkflowSnapshot;
+  visualization: VisualizationSnapshot | null;
+}) {
+  const conceptRecords = Object.values(workflow.concepts);
+  const explained = conceptRecords.filter(
+    (concept) => concept.status !== "not-discussed",
+  ).length;
+  const understood = conceptRecords.filter(
+    (concept) => concept.status === "understood",
+  ).length;
+  const currentStep = kneeArthroscopyProcedure.steps.find(
+    (procedureStep) => procedureStep.id === visualization?.stepId,
+  );
+  const walkthroughStepIndex = kneeArthroscopyVoiceWalkthrough.findIndex(
+    (action) => action.stepId === visualization?.stepId,
+  );
+  const walkthroughStepNumber =
+    visualization?.stepId === "completion"
+      ? kneeArthroscopyVoiceWalkthrough.length
+      : Math.max(0, walkthroughStepIndex) + 1;
+  const walkthroughStepCount = kneeArthroscopyVoiceWalkthrough.length;
+  const teachBackStatus = workflow.concepts["tissue-treated"].status;
+
+  return (
+    <section className="glass-card consent-visual-status">
+      <div className="card-heading-row">
+        <div>
+          <span className="card-kicker">Consent workflow</span>
+          <h3>{workflow.procedureName}</h3>
+        </div>
+        <StatusPill tone={workflow.taskStatus === "on-hold" ? "amber" : "blue"}>
+          {workflow.taskStatus.replace("-", " ")}
+        </StatusPill>
+      </div>
+
+      <div className="consent-status-grid">
+        <article>
+          <span>Visual state</span>
+          <strong>{(visualization?.visualState ?? "loading").replaceAll("-", " ")}</strong>
+          <small>{currentStep?.title ?? "Preparing body overview"}</small>
+        </article>
+        <article>
+          <span>Concepts explained</span>
+          <strong>{explained} / 3</strong>
+          <small>{understood} understood</small>
+        </article>
+        <article>
+          <span>Teach-back</span>
+          <strong>{teachBackStatus.replace("-", " ")}</strong>
+          <small>QuestionnaireResponse</small>
+        </article>
+        <article>
+          <span>Open questions</span>
+          <strong>{workflow.unresolvedQuestions.length}</strong>
+          <small>Visible to care team</small>
+        </article>
+      </div>
+
+      <div className="workflow-step-progress" aria-label={`Visualization step ${walkthroughStepNumber} of ${walkthroughStepCount}`}>
+        <div><span>Approved walkthrough</span><strong>{walkthroughStepNumber} / {walkthroughStepCount}</strong></div>
+        <i><span style={{ width: `${(walkthroughStepNumber / walkthroughStepCount) * 100}%` }} /></i>
+      </div>
+
+      <dl className="workflow-detail-list">
+        <div>
+          <dt>Consent</dt>
+          <dd><i className="workflow-dot workflow-dot-amber" />{workflow.consentStatus}</dd>
+        </div>
+        <div>
+          <dt>Clinician escalation</dt>
+          <dd>
+            <i className={`workflow-dot workflow-dot-${workflow.clinicianEscalation === "requested" ? "red" : "green"}`} />
+            {workflow.clinicianEscalation}
+          </dd>
+        </div>
+        <div>
+          <dt>Medplum</dt>
+          <dd>
+            <i className={`workflow-dot workflow-dot-${workflow.connected ? "green" : "neutral"}`} />
+            {workflow.connected ? "FHIR synchronized" : "Demo cache · reconnectable"}
+          </dd>
+        </div>
+      </dl>
+
+      <div className="education-safety-note">
+        <ShieldCheck size={17} />
+        <span><strong>Educational illustration</strong>Not patient imaging or surgical navigation.</span>
+      </div>
+    </section>
+  );
+}
+
 function AnatomyView({
   anatomyState,
+  visualizationState,
+  workflow,
   onAnatomyState,
+  onVisualizationState,
+  onVisualizationCommand,
   onVoiceOpen,
   onVoicePrompt,
 }: {
   anatomyState: AnatomyState | null;
+  visualizationState: VisualizationSnapshot | null;
+  workflow: ConsentWorkflowSnapshot;
   onAnatomyState: (state: AnatomyState) => void;
+  onVisualizationState: (state: VisualizationSnapshot) => void;
+  onVisualizationCommand: (command: VisualizationCommand) => void;
   onVoiceOpen: () => void;
   onVoicePrompt: (prompt: string) => void;
 }) {
-  const isBodyOverview = anatomyState?.viewMode !== "knee";
-  const sceneNumber =
-    anatomyState?.stage === "recovery"
-      ? 5
-      : anatomyState?.stage === "treatment"
-        ? 4
-        : anatomyState?.stage === "scope"
-          ? 3
-          : anatomyState?.stage === "tear" || anatomyState?.viewMode === "knee"
-            ? 2
-            : 1;
+  const isBodyOverview = visualizationState?.viewMode !== "knee";
+  const rightKneeFocused =
+    isBodyOverview && visualizationState?.target === "knee";
+  const visualTransitionActive =
+    visualizationState?.visualState === "loading" ||
+    visualizationState?.visualState === "focusing-region" ||
+    visualizationState?.visualState === "entering-procedure" ||
+    visualizationState?.visualState === "returning-to-overview";
+  const currentStepIndex = kneeArthroscopyProcedure.steps.findIndex(
+    (step) => step.id === visualizationState?.stepId,
+  );
+  const nextProcedureStep =
+    currentStepIndex >= 0
+      ? kneeArthroscopyProcedure.steps[currentStepIndex + 1]
+      : undefined;
+  const primaryCommand: VisualizationCommand = isBodyOverview
+    ? rightKneeFocused
+      ? { type: "ENTER_PROCEDURE", procedureId: "knee-arthroscopy" }
+      : { type: "FOCUS_BODY_REGION", regionId: "right-knee" }
+    : nextProcedureStep
+      ? {
+          type: "PLAY_PROCEDURE_STEP",
+          procedureId: "knee-arthroscopy",
+          stepId: nextProcedureStep.id,
+        }
+      : { type: "RETURN_TO_OVERVIEW" };
+  const primaryLabel = isBodyOverview
+    ? rightKneeFocused
+      ? "Zoom into the highlighted knee"
+      : "Highlight the right knee"
+    : nextProcedureStep
+      ? nextProcedureStep.id === "completion" &&
+        workflow.concepts["tissue-treated"].status !== "understood"
+        ? "Complete teach-back before finishing"
+        : `Next: ${nextProcedureStep.title}`
+      : "Return to whole-body view";
+  const completionBlocked =
+    nextProcedureStep?.id === "completion" &&
+    workflow.concepts["tissue-treated"].status !== "understood";
+  const hotspotCommands: Array<{
+    label: string;
+    target: AnatomyState["target"];
+    command: VisualizationCommand;
+  }> = isBodyOverview
+    ? [
+        {
+          label: "Whole body",
+          target: "body",
+          command: { type: "SHOW_BODY_OVERVIEW", view: "three-quarter" },
+        },
+        {
+          label: "Right knee",
+          target: "knee",
+          command: { type: "FOCUS_BODY_REGION", regionId: "right-knee" },
+        },
+      ]
+    : [
+        {
+          label: "Whole body",
+          target: "body",
+          command: { type: "RETURN_TO_OVERVIEW" },
+        },
+        {
+          label: "Damaged meniscus",
+          target: "tear",
+          command: {
+            type: "PLAY_PROCEDURE_STEP",
+            procedureId: "knee-arthroscopy",
+            stepId: "damaged-structure",
+          },
+        },
+        {
+          label: "Cruciate ligaments",
+          target: "ligaments",
+          command: {
+            type: "HIGHLIGHT_STRUCTURE",
+            structureId: "cruciate-ligaments",
+            color: "blue",
+          },
+        },
+        {
+          label: "Camera portals",
+          target: "portals",
+          command: {
+            type: "PLAY_PROCEDURE_STEP",
+            procedureId: "knee-arthroscopy",
+            stepId: "access-point",
+          },
+        },
+      ];
 
   return (
     <div className="anatomy-layout view-enter">
       <div className="anatomy-main">
-        <KneeViewer onStateChange={onAnatomyState} />
+        <KneeViewer
+          onStateChange={onAnatomyState}
+          onVisualizationStateChange={onVisualizationState}
+        />
         <div className="anatomy-accessible-list glass-card">
           <span className="card-kicker">Model hotspots</span>
           <div>
-            {[
-              ["Whole body", "body"],
-              ["Right knee", "knee"],
-              ["Damaged meniscus", "tear"],
-              ["Cruciate ligaments", "ligaments"],
-              ["Camera portals", "portals"],
-            ].map(([label, target]) => (
+            {hotspotCommands.map(({ label, target, command }) => (
               <button
                 key={target}
                 className={anatomyState?.target === target ? "active" : ""}
-                onClick={() =>
-                  window.consentLoop3D?.execute({
-                    type: "focus",
-                    target: target as AnatomyTarget,
-                  })
-                }
+                onClick={() => onVisualizationCommand(command)}
+                disabled={visualTransitionActive}
               >
                 <span /><strong>{label}</strong><ArrowRight size={15} />
               </button>
@@ -420,51 +608,41 @@ function AnatomyView({
         </div>
       </div>
       <aside className="anatomy-sidebar">
+        <ConsentVisualizationStatus workflow={workflow} visualization={visualizationState} />
         <section className="glass-card explanation-card">
           <div className="card-heading-row">
-            <StatusPill tone="coral">Scene {sceneNumber} of 5</StatusPill>
+            <StatusPill tone={visualizationState?.comparison ? "amber" : "coral"}>
+              {visualizationState?.comparison ? "Clarification view" : isBodyOverview ? "Body overview" : "Procedure detail"}
+            </StatusPill>
             <button className="icon-button" aria-label="More information"><Info size={17} /></button>
           </div>
           <h3>
-            {isBodyOverview
-              ? "Your procedure is localized to the right knee."
-              : "The tear is in the meniscus—not the whole knee."}
+            {visualizationState?.comparison
+              ? "The whole knee is not being replaced."
+              : isBodyOverview
+                ? "Your procedure is localized to the right knee."
+                : "The tear is in the meniscus—not the whole knee."}
           </h3>
-          {isBodyOverview ? (
-            <p>
-              Start with the whole person for orientation. Your care plan concerns
-              one small area inside the right knee—not your hip, spine, or the rest
-              of the leg. Select the knee marker to move into the joint.
-            </p>
-          ) : (
-            <p>
-              The meniscus is a crescent of cartilage that cushions the joint.
-              During arthroscopy, the surgeon first looks at the tissue before
-              deciding whether damaged edges can be repaired or need limited trimming.
-            </p>
-          )}
+          <p>
+            {visualizationState?.comparison
+              ? "The complete joint is faint red for comparison. The much smaller meniscus area that may be repaired or trimmed is orange."
+              : isBodyOverview
+                ? "Start with the whole person for orientation, then select the marked knee to travel into the existing detailed procedure model."
+                : "The surgeon first inspects the tissue before deciding whether an unstable edge may be repaired or needs limited trimming."}
+          </p>
           <div className="why-card">
             <div className="card-icon coral"><Layers3 size={19} /></div>
             <div>
               <strong>Why this matters</strong>
-              <span>
-                {isBodyOverview
-                  ? "Whole-body context makes the treatment location unambiguous."
-                  : "The final action depends on tissue quality seen during surgery."}
-              </span>
+              <span>The final action depends on tissue quality seen during surgery.</span>
             </div>
           </div>
           <button
             className="text-button"
-            onClick={() =>
-              window.consentLoop3D?.execute(
-                isBodyOverview
-                  ? { type: "focus", target: "knee" }
-                  : { type: "set-stage", stage: "scope" },
-              )
-            }
+            onClick={() => onVisualizationCommand(primaryCommand)}
+            disabled={visualTransitionActive || completionBlocked}
           >
-            {isBodyOverview ? "Explore the right knee" : "Next: camera path"} <ArrowRight size={16} />
+            {primaryLabel} <ArrowRight size={16} />
           </button>
         </section>
         <VoiceGuidePanel onOpen={onVoiceOpen} onPrompt={onVoicePrompt} />
@@ -693,51 +871,162 @@ function CostsView({
 
 function TeachBackView({
   statuses,
-  onStatus,
+  workflow,
+  onResult,
+  onVisualizationState,
 }: {
   statuses: Record<ComprehensionConceptId, ConceptStatus>;
-  onStatus: (id: ComprehensionConceptId, status: ConceptStatus) => void;
+  workflow: ConsentWorkflowSnapshot;
+  onResult: (update: TeachBackUpdate) => Promise<void>;
+  onVisualizationState: (state: VisualizationSnapshot) => void;
 }) {
   const [answer, setAnswer] = useState("");
-  const [feedback, setFeedback] = useState<"idle" | "misconception" | "corrected">("idle");
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<"idle" | "misconception" | "corrected" | "uncertain">("idle");
+  const dictation = useDeepgramDictation();
+  const dictationBaseRef = useRef("");
 
-  const submitAnswer = () => {
-    const normalized = answer.toLowerCase();
-    if (normalized.includes("whole knee") || normalized.includes("replac")) {
-      onStatus("tissue-treated", "contradicted");
-      setFeedback("misconception");
-      window.consentLoop3D?.execute({ type: "set-stage", stage: "tear" });
+  useEffect(() => {
+    if (!dictation.transcript) return;
+    const spokenAnswer = [dictationBaseRef.current, dictation.transcript]
+      .filter(Boolean)
+      .join(" ");
+    setAnswer(spokenAnswer);
+  }, [dictation.transcript]);
+
+  const toggleDictation = () => {
+    if (dictation.status === "connecting" || dictation.status === "listening") {
+      dictation.stop();
       return;
     }
-    if (normalized.includes("meniscus") || normalized.includes("torn tissue")) {
-      onStatus("tissue-treated", "understood");
-      setFeedback("corrected");
-      window.consentLoop3D?.execute({ type: "focus", target: "meniscus" });
+    if (dictation.status === "finalizing") return;
+    dictationBaseRef.current = answer.trim();
+    void dictation.start();
+  };
+
+  const playTeachBackVisualization = async (
+    stepId: "misconception-comparison" | "completion",
+  ) => {
+    const bridge =
+      window.consentLoopVisualization ??
+      await waitForVisualizationController();
+    const snapshot = bridge.getSnapshot();
+
+    if (snapshot.viewMode !== "knee") {
+      const alreadyFocused =
+        snapshot.target === "knee" && snapshot.stepId === "affected-knee";
+      if (!alreadyFocused) {
+        const focused = await bridge.execute({
+          type: "FOCUS_BODY_REGION",
+          regionId: "right-knee",
+        });
+        if (focused.status !== "completed") return;
+      }
+
+      const entered = await bridge.execute({
+        type: "ENTER_PROCEDURE",
+        procedureId: "knee-arthroscopy",
+      });
+      if (entered.status !== "completed") return;
     }
+
+    const result = await bridge.execute({
+      type: "PLAY_PROCEDURE_STEP",
+      procedureId: "knee-arthroscopy",
+      stepId,
+    });
+    if (result.status === "completed") onVisualizationState(result.snapshot);
+  };
+
+  const submitAnswer = async () => {
+    const normalized = answer.toLowerCase();
+    const identifiesMeniscus = normalized.includes("meniscus") || normalized.includes("torn tissue");
+    const describesWholeReplacement = normalized.includes("whole knee") || normalized.includes("entire knee") || normalized.includes("replac");
+    setBusy(true);
+    if (identifiesMeniscus) {
+      setFeedback("corrected");
+      await onResult({
+        conceptId: "tissue-treated",
+        status: "understood",
+        evidence: answer,
+        clarification: "Compared the whole joint with the smaller treated meniscus area.",
+      });
+      await playTeachBackVisualization("completion");
+      setBusy(false);
+      return;
+    }
+    if (describesWholeReplacement) {
+      setFeedback("misconception");
+      await onResult({
+        conceptId: "tissue-treated",
+        status: "contradicted",
+        evidence: answer,
+        misconception: "Patient described the plan as a whole-knee replacement.",
+      });
+      await playTeachBackVisualization("misconception-comparison");
+      setBusy(false);
+      return;
+    }
+    setFeedback("uncertain");
+    await onResult({
+      conceptId: "tissue-treated",
+      status: "uncertain",
+      evidence: answer,
+      clarification: "The patient requested another explanation of the treatment target.",
+    });
+    setBusy(false);
   };
 
   return (
     <div className="teachback-layout view-enter">
       <section className="glass-card teachback-session">
         <div className="teachback-model">
-          <KneeViewer compact />
+          <KneeViewer compact onVisualizationStateChange={onVisualizationState} />
           <div className="teachback-prompt-orb"><Mic size={22} /><span>Voice optional</span></div>
         </div>
         <div className="teachback-composer">
-          <StatusPill tone="blue">Concept 1 · treatment target</StatusPill>
+          <div className="teachback-status-row">
+            <StatusPill tone="blue">Concept 1 · treatment target</StatusPill>
+            <StatusPill tone={workflow.connected ? "green" : "neutral"}>
+              {workflow.connected ? "Medplum connected" : "Demo cache"}
+            </StatusPill>
+          </div>
           <h3>In your own words, what part of your knee may be treated?</h3>
           <p>Try the planned misconception for the demo, or answer correctly.</p>
           <div className="demo-answer-chips">
             <button onClick={() => setAnswer("The surgeon is replacing my whole knee.")}>Use misconception</button>
             <button onClick={() => setAnswer("The surgeon may trim or repair the torn meniscus, not replace my whole knee.")}>Use corrected answer</button>
           </div>
-          <label className="answer-field">
-            <span>Your answer</span>
-            <textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="Type or speak your answer…" />
-            <button className="mic-inline" aria-label="Speak answer"><Mic size={18} /></button>
-          </label>
-          <button className="button button-primary" onClick={submitAnswer} disabled={!answer.trim()}>
-            Check my explanation <ArrowRight size={17} />
+          <div className="answer-field">
+            <label htmlFor="teachback-answer">Your answer</label>
+            <textarea
+              id="teachback-answer"
+              value={answer}
+              onChange={(event) => {
+                if (dictation.isActive) dictation.stop();
+                setAnswer(event.target.value);
+              }}
+              placeholder="Type or speak your answer…"
+            />
+            <button
+              type="button"
+              className={`mic-inline${dictation.status === "listening" ? " is-listening" : ""}${dictation.status === "connecting" ? " is-connecting" : ""}`}
+              aria-label={dictation.isActive ? "Stop recording answer" : "Speak answer"}
+              aria-pressed={dictation.isActive}
+              onClick={toggleDictation}
+              disabled={busy || dictation.status === "finalizing"}
+            >
+              <Mic size={18} />
+            </button>
+          </div>
+          <div className={`dictation-status dictation-${dictation.status}`} role="status" aria-live="polite">
+            {dictation.status === "connecting" && "Connecting microphone…"}
+            {dictation.status === "listening" && "Listening… Speak your answer, then press the microphone again."}
+            {dictation.status === "finalizing" && "Finishing transcription…"}
+            {dictation.status === "error" && dictation.error}
+          </div>
+          <button className="button button-primary" onClick={() => { void submitAnswer(); }} disabled={!answer.trim() || busy || dictation.isActive}>
+            {busy ? "Checking…" : "Check my explanation"} <ArrowRight size={17} />
           </button>
           {feedback === "misconception" && (
             <div className="feedback-card feedback-warning" role="status">
@@ -747,6 +1036,11 @@ function TeachBackView({
           {feedback === "corrected" && (
             <div className="feedback-card feedback-success" role="status">
               <CheckCircle2 size={20} /><div><strong>That captures the key distinction.</strong><span>You identified the meniscus and the uncertainty between limited trimming and repair.</span></div>
+            </div>
+          )}
+          {feedback === "uncertain" && (
+            <div className="feedback-card feedback-warning" role="status">
+              <CircleAlert size={20} /><div><strong>Let’s review that with a person.</strong><span>The education Task remains unresolved and clinician review is visible in the workflow.</span></div>
             </div>
           )}
         </div>
@@ -765,7 +1059,11 @@ function TeachBackView({
                 </div>
                 <div><strong>{concept.title}</strong><span>{status.replace("-", " ")}</span><p>{concept.prompt}</p></div>
                 {concept.id !== "tissue-treated" && (
-                  <button onClick={() => onStatus(concept.id, "understood")}>Use demo answer</button>
+                  <button onClick={() => { void onResult({
+                    conceptId: concept.id,
+                    status: "understood",
+                    evidence: concept.response || `I understand ${concept.title.toLowerCase()}.`,
+                  }); }}>Use demo answer</button>
                 )}
               </article>
             );
@@ -780,17 +1078,19 @@ function TeachBackView({
 function ReviewView({
   preferences,
   statuses,
+  workflow,
   estimateAcknowledged,
   onNavigate,
 }: {
   preferences: Record<OptionId, Preference>;
   statuses: Record<ComprehensionConceptId, ConceptStatus>;
+  workflow: ConsentWorkflowSnapshot;
   estimateAcknowledged: boolean;
   onNavigate: (view: JourneyView) => void;
 }) {
   const understood = Object.values(statuses).filter((status) => status === "understood").length;
   const selectedPreference = Object.entries(preferences).find(([, value]) => value === "preferred");
-  const ready = understood === 3 && estimateAcknowledged;
+  const ready = understood === 3 && estimateAcknowledged && workflow.clinicianEscalation !== "requested";
 
   return (
     <div className="review-layout view-enter">
@@ -818,33 +1118,36 @@ function ReviewView({
       </section>
 
       <aside className="glass-card audit-card">
-        <div className="card-heading-row"><div><span className="card-kicker">FHIR event stream</span><h3>Demo audit trail</h3></div><span className="live-dot" /></div>
+        <div className="card-heading-row">
+          <div><span className="card-kicker">FHIR event stream</span><h3>{workflow.connected ? "Medplum audit trail" : "Reconnectable demo trail"}</h3></div>
+          <span className={workflow.connected ? "live-dot" : "workflow-offline-dot"} />
+        </div>
         <div className="audit-list">
-          {[
-            ["QuestionnaireResponse", "Teach-back updated", "Just now"],
-            ["Task", "Recovery support flagged", "4 min"],
-            ["CoverageEligibilityResponse", "Benefits checked", "7 min"],
-            ["ServiceRequest", "Procedure context loaded", "12 min"],
-          ].map(([resource, event, time]) => (
-            <article key={resource}><i /><div><strong>{event}</strong><span>{resource}</span></div><time>{time}</time></article>
+          {workflow.events.slice(0, 7).map((event) => (
+            <article key={event.id}>
+              <i />
+              <div><strong>{event.action}</strong><span>{event.resourceType} · {event.summary}</span></div>
+              <time>{new Date(event.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time>
+            </article>
           ))}
         </div>
-        <button className="text-button">View synthetic resources <ArrowRight size={15} /></button>
+        <button className="text-button">View {workflow.connected ? "FHIR resources" : "synthetic snapshot"} <ArrowRight size={15} /></button>
       </aside>
     </div>
   );
 }
 
-const voiceTargetIds: Record<AnatomyVoiceTarget, VizTargetId> = {
-  body: "anatomy.body",
-  knee: "anatomy.knee",
-  meniscus: "anatomy.meniscus.medial",
-  tear: "anatomy.meniscus.tear",
-  ligaments: "anatomy.ligament.cruciate",
-  portals: "procedure.portals",
-};
-
 const voicePromptChips = [
+  {
+    id: "walkthrough",
+    label: "Walk me through it",
+    message: "Walk me through the entire knee arthroscopy procedure from the whole body and explain every step as the visualization changes.",
+  },
+  {
+    id: "visible-part",
+    label: "What am I seeing?",
+    message: "What is the highlighted part I am seeing right now, and what is happening here?",
+  },
   {
     id: "procedure",
     label: "Show the damaged part",
@@ -867,36 +1170,15 @@ const voicePromptChips = [
   },
 ] as const;
 
-function buildAnatomyVoiceAction(
-  target: AnatomyVoiceTarget,
-  camera?: AnatomyCameraAction,
-): VizAction {
-  const targetId = voiceTargetIds[target];
-  const focusAction: VizAtomicAction =
-    target === "body"
-      ? { type: "target.select", targets: [targetId], behavior: "replace" }
-      : { type: "target.isolate", targets: [targetId], contextOpacity: 0.2 };
-
-  let cameraAction: VizAtomicAction | null = null;
-  if (camera === "zoom_in") cameraAction = { type: "camera.zoom", factor: 1.35 };
-  if (camera === "zoom_out") cameraAction = { type: "camera.zoom", factor: 0.74 };
-  if (camera === "rotate_left") cameraAction = { type: "camera.orbit", yawDeg: -38 };
-  if (camera === "rotate_right") cameraAction = { type: "camera.orbit", yawDeg: 38 };
-
-  return cameraAction
-    ? { type: "batch", atomic: true, actions: [focusAction, cameraAction] }
-    : focusAction;
-}
-
-function waitForVoiceViewer(
-  previousBridge?: Window["consentLoopViz"],
+function waitForVisualizationController(
+  previousBridge?: Window["consentLoopVisualization"],
   timeoutMs = 4_000,
-): Promise<NonNullable<Window["consentLoopViz"]>> {
+): Promise<NonNullable<Window["consentLoopVisualization"]>> {
   return new Promise((resolve, reject) => {
     const startedAt = performance.now();
 
     const check = () => {
-      const bridge = window.consentLoopViz;
+      const bridge = window.consentLoopVisualization;
       if (bridge && (!previousBridge || bridge !== previousBridge)) {
         resolve(bridge);
         return;
@@ -920,6 +1202,10 @@ export function ConsentLoopDemo() {
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("Patient dashboard loaded");
   const [anatomyState, setAnatomyState] = useState<AnatomyState | null>(null);
+  const [visualizationState, setVisualizationState] = useState<VisualizationSnapshot | null>(null);
+  const [workflow, setWorkflow] = useState<ConsentWorkflowSnapshot>(() =>
+    createDefaultWorkflowSnapshot(),
+  );
   const [selectedOption, setSelectedOption] = useState<OptionId>("trim");
   const [preferences, setPreferences] = useState<Record<OptionId, Preference>>({
     therapy: null,
@@ -927,22 +1213,54 @@ export function ConsentLoopDemo() {
     repair: "unsure",
   });
   const [estimateAcknowledged, setEstimateAcknowledged] = useState(false);
-  const [conceptStatuses, setConceptStatuses] = useState<Record<ComprehensionConceptId, ConceptStatus>>({
-    "procedure-identity": "partial",
-    "tissue-treated": "understood",
-    "risk-limitation": "not-discussed",
-  });
   const pendingVoiceMessage = useRef<string | null>(null);
   const activeViewRef = useRef<JourneyView>("overview");
-  const voiceViewerBridgeRef = useRef<Window["consentLoopViz"]>(undefined);
+  const workflowRef = useRef(workflow);
+  const workflowWriteRef = useRef<Promise<void>>(Promise.resolve());
+  const visualizationStateRef = useRef<VisualizationSnapshot | null>(null);
+  const assessedVoiceEntries = useRef(new Set<string>());
+  const voiceViewerBridgeRef = useRef<Window["consentLoopVisualization"]>(undefined);
   const voiceViewerTransitionRef = useRef<
-    Promise<NonNullable<Window["consentLoopViz"]>> | null
+    Promise<NonNullable<Window["consentLoopVisualization"]>> | null
   >(null);
   const mainHeading = useRef<HTMLHeadingElement>(null);
 
   const currentIndex = navItems.findIndex((item) => item.id === activeView);
   const progress = Math.round(((currentIndex + 1) / navItems.length) * 100);
   const copy = pageCopy[activeView];
+  const conceptStatuses = useMemo<Record<ComprehensionConceptId, ConceptStatus>>(
+    () => ({
+      "procedure-identity": workflow.concepts["procedure-identity"].status,
+      "tissue-treated": workflow.concepts["tissue-treated"].status,
+      "risk-limitation": workflow.concepts["risk-limitation"].status,
+    }),
+    [workflow.concepts],
+  );
+
+  useEffect(() => {
+    workflowRef.current = workflow;
+  }, [workflow]);
+
+  useEffect(() => {
+    visualizationStateRef.current = visualizationState;
+  }, [visualizationState]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadConsentWorkflow({ storage: window.localStorage }).then((snapshot) => {
+      if (cancelled) return;
+      workflowRef.current = snapshot;
+      setWorkflow(snapshot);
+      setAnnouncement(
+        snapshot.connected
+          ? "Consent workflow synchronized from Medplum"
+          : "Synthetic workflow restored from this browser",
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     mainHeading.current?.focus({ preventScroll: true });
@@ -950,11 +1268,11 @@ export function ConsentLoopDemo() {
 
   const navigate = (view: JourneyView) => {
     const previousView = activeViewRef.current;
-    const previousBridge = window.consentLoopViz;
+    const previousBridge = window.consentLoopVisualization;
     activeViewRef.current = view;
 
     if (view === "anatomy" && previousView !== "anatomy") {
-      const transition = waitForVoiceViewer(previousBridge);
+      const transition = waitForVisualizationController(previousBridge);
       voiceViewerTransitionRef.current = transition;
       void transition
         .then((bridge) => {
@@ -981,8 +1299,9 @@ export function ConsentLoopDemo() {
     setAnnouncement(`${pageCopy[view].title} view opened`);
   };
 
-  const executeVoiceVisualization = async (
-    action: VizAction,
+  const executeVisualization = async (
+    command: VisualizationCommand,
+    voiceCall?: VisualizationVoiceToolCall,
   ): Promise<VoiceToolExecutionResult> => {
     if (activeViewRef.current !== "anatomy") {
       navigate("anatomy");
@@ -992,49 +1311,117 @@ export function ConsentLoopDemo() {
     const bridge = pendingBridge
       ? await pendingBridge
       : voiceViewerBridgeRef.current ??
-        window.consentLoopViz ??
-        await waitForVoiceViewer();
+        window.consentLoopVisualization ??
+        await waitForVisualizationController();
     voiceViewerBridgeRef.current = bridge;
 
-    const command: VizCommandV1 = {
-      schema: "consentloop.viz-command.v1",
-      id: `voice-${crypto.randomUUID()}`,
-      issuedAt: new Date().toISOString(),
-      source: {
-        kind: "voice",
-        sessionId: patient.sessionId,
-      },
-      action,
-    };
     const result = await bridge.execute(command);
     if (result.status !== "completed") {
       return { ok: false, error: result.message };
     }
+    visualizationStateRef.current = result.snapshot;
+    setVisualizationState(result.snapshot);
     setAnnouncement("Voice guide updated the interactive anatomy");
-    return { ok: true, message: result.message };
+    const narration = voiceCall ? getVoiceNarrationCue(voiceCall) : undefined;
+    const nextApprovedAction = voiceCall
+      ? getNextApprovedVoiceAction(voiceCall)
+      : undefined;
+    return {
+      ok: true,
+      message: `${result.message} The visual transition has finished.`,
+      settled: {
+        transitionCompleted: true,
+        stateRevision: result.stateRevision,
+        visualState: result.snapshot.visualState,
+        viewMode: result.snapshot.viewMode,
+        activeRegionId: result.snapshot.activeRegionId,
+        procedureId: result.snapshot.procedureId,
+        stepId: result.snapshot.stepId,
+        stage: result.snapshot.stage,
+      },
+      ...(narration ? { narration } : {}),
+      ...(nextApprovedAction ? { nextApprovedAction } : {}),
+      ...(voiceCall?.name === "play_procedure_step" &&
+      voiceCall.arguments.stepId === "patient-teachback"
+        ? { waitForPatientResponse: true as const }
+        : {}),
+    };
+  };
+
+  const recordTeachBack = async (update: TeachBackUpdate): Promise<void> => {
+    const write = workflowWriteRef.current.then(async () => {
+      const snapshot = await persistTeachBackUpdate(
+        workflowRef.current,
+        update,
+        { storage: window.localStorage },
+      );
+      workflowRef.current = snapshot;
+      setWorkflow(snapshot);
+      const message = snapshot.connected
+        ? "Teach-back recorded in Medplum and the consent workflow was recomputed."
+        : "Teach-back saved in the reconnectable synthetic demo cache.";
+      setVoiceNotice(message);
+      setAnnouncement(message);
+    });
+    workflowWriteRef.current = write.catch(() => undefined);
+    await write;
   };
 
   const handleVoiceToolCall = async (
     call: VoiceToolCall,
   ): Promise<VoiceToolExecutionResult> => {
+    if (isVisualizationVoiceToolCall(call)) {
+      const plan = planVoiceVisualizationCommands(
+        call,
+        visualizationStateRef.current,
+      );
+      if (!plan.ok) return { ok: false, error: plan.error };
+
+      let finalResult: VoiceToolExecutionResult = {
+        ok: false,
+        error: "No visualization command was available.",
+      };
+      for (const [index, command] of plan.commands.entries()) {
+        const isFinalCommand = index === plan.commands.length - 1;
+        finalResult = await executeVisualization(
+          command,
+          isFinalCommand ? call : undefined,
+        );
+        if (!finalResult.ok) return finalResult;
+      }
+
+      if (!finalResult.ok || !plan.preparationApplied) return finalResult;
+      return {
+        ...finalResult,
+        message: `The viewer safely prepared the required anatomy context first. ${finalResult.message ?? "The requested visual is ready."}`,
+        scenePreparation: {
+          applied: true,
+          commandCount: plan.commands.length,
+        },
+      };
+    }
+
     switch (call.name) {
+      case "inspect_current_visual": {
+        const visualContext = getCurrentVisualContext(
+          visualizationStateRef.current,
+          activeViewRef.current === "anatomy",
+          call.arguments.reference,
+        );
+        return {
+          ok: true,
+          message: visualContext.ready
+            ? "The current 3D scene was inspected without changing it. Answer only from visualContext."
+            : "The 3D scene has not reported a ready visual yet. Do not guess what is visible.",
+          visualContext,
+        };
+      }
       case "open_consent_section":
         navigate(call.arguments.section);
         return {
           ok: true,
           message: `${navItems.find((item) => item.id === call.arguments.section)?.label ?? "The requested"} section is open.`,
         };
-      case "focus_anatomy":
-        return executeVoiceVisualization(
-          buildAnatomyVoiceAction(call.arguments.target, call.arguments.camera),
-        );
-      case "preview_procedure_step":
-        return executeVoiceVisualization({
-          type: "procedure.preview",
-          procedureId: "knee-arthroscopy",
-          stepId: call.arguments.step,
-          autoplay: false,
-        });
       case "focus_option": {
         setSelectedOption(call.arguments.option);
         navigate("options");
@@ -1043,6 +1430,20 @@ export function ConsentLoopDemo() {
           ok: true,
           message: `${option?.title ?? "The requested option"} is in focus. No preference was recorded.`,
         };
+      }
+      case "record_option_preference": {
+        const option = careOptions.find((item) => item.id === call.arguments.option);
+        const preferenceLabel = preferenceLabels[call.arguments.preference];
+        setSelectedOption(call.arguments.option);
+        setPreferences((current) => ({
+          ...current,
+          [call.arguments.option]: call.arguments.preference,
+        }));
+        navigate("options");
+        const message = `${option?.title ?? "The requested option"} is now marked ${preferenceLabel.toLowerCase()}. This records your preference for the consent discussion; it is not consent or a scheduled treatment.`;
+        setVoiceNotice(message);
+        setAnnouncement(message);
+        return { ok: true, message };
       }
       case "request_human": {
         const destinationLabels = {
@@ -1059,7 +1460,61 @@ export function ConsentLoopDemo() {
     }
   };
 
-  const voice = useConsentVoiceAgent({ onToolCall: handleVoiceToolCall });
+  const handleVoiceTranscript = (entry: VoiceTranscriptEntry) => {
+    if (
+      entry.role !== "user" ||
+      assessedVoiceEntries.current.has(entry.id) ||
+      visualizationStateRef.current?.visualState !== "asking-teachback"
+    ) {
+      return;
+    }
+    assessedVoiceEntries.current.add(entry.id);
+    const normalized = entry.content.toLowerCase();
+    const identifiesMeniscus =
+      normalized.includes("meniscus") || normalized.includes("torn tissue");
+    const describesWholeReplacement =
+      normalized.includes("whole knee") || normalized.includes("entire knee") || normalized.includes("replac");
+
+    if (identifiesMeniscus) {
+      void recordTeachBack({
+        conceptId: "tissue-treated",
+        status: "understood",
+        evidence: entry.content,
+        clarification: "Voice teach-back distinguished the meniscus from the complete knee joint.",
+      }).then(() => executeVisualization({
+        type: "PLAY_PROCEDURE_STEP",
+        procedureId: "knee-arthroscopy",
+        stepId: "completion",
+      }));
+      return;
+    }
+
+    if (describesWholeReplacement) {
+      void recordTeachBack({
+        conceptId: "tissue-treated",
+        status: "contradicted",
+        evidence: entry.content,
+        misconception: "Patient described the plan as a whole-knee replacement.",
+      }).then(() => executeVisualization({
+        type: "PLAY_PROCEDURE_STEP",
+        procedureId: "knee-arthroscopy",
+        stepId: "misconception-comparison",
+      }));
+      return;
+    }
+
+    void recordTeachBack({
+      conceptId: "tissue-treated",
+      status: "uncertain",
+      evidence: entry.content,
+      clarification: "Patient needs another treatment-target explanation.",
+    });
+  };
+
+  const voice = useConsentVoiceAgent({
+    onToolCall: handleVoiceToolCall,
+    onTranscript: handleVoiceTranscript,
+  });
   const voiceStatus = voice.status;
   const sendVoiceText = voice.sendText;
 
@@ -1198,18 +1653,46 @@ export function ConsentLoopDemo() {
             </div>
             <div className="page-header-meta">
               <StatusPill tone="neutral"><Stethoscope size={14} /> {patient.clinician}</StatusPill>
+              <StatusPill tone={workflow.connected ? "green" : "neutral"}>
+                <span className={workflow.connected ? "live-dot" : "workflow-offline-dot"} />
+                {workflow.connected ? "Medplum live" : "Demo cache"}
+              </StatusPill>
               {preferredLabel && <StatusPill tone="blue"><HandHeart size={14} /> Preference: {preferredLabel.replace("Arthroscopy · ", "")}</StatusPill>}
             </div>
           </div>
 
           <div className="view-container">
             {activeView === "overview" && <OverviewView onNavigate={navigate} />}
-            {activeView === "anatomy" && <AnatomyView anatomyState={anatomyState} onAnatomyState={setAnatomyState} onVoiceOpen={() => setVoiceExpanded(true)} onVoicePrompt={sendVoiceMessage} />}
+            {activeView === "anatomy" && (
+              <AnatomyView
+                anatomyState={anatomyState}
+                visualizationState={visualizationState}
+                workflow={workflow}
+                onAnatomyState={setAnatomyState}
+                onVisualizationState={(state) => {
+                  visualizationStateRef.current = state;
+                  setVisualizationState(state);
+                }}
+                onVisualizationCommand={(command) => { void executeVisualization(command); }}
+                onVoiceOpen={() => setVoiceExpanded(true)}
+                onVoicePrompt={sendVoiceMessage}
+              />
+            )}
             {activeView === "options" && <OptionsView preferences={preferences} selected={selectedOption} onSelect={setSelectedOption} onPreference={(option, preference) => setPreferences((current) => ({ ...current, [option]: current[option] === preference ? null : preference }))} />}
             {activeView === "plan" && <PlanView />}
             {activeView === "costs" && <CostsView acknowledged={estimateAcknowledged} onAcknowledge={() => setEstimateAcknowledged((value) => !value)} />}
-            {activeView === "teachback" && <TeachBackView statuses={conceptStatuses} onStatus={(id, status) => setConceptStatuses((current) => ({ ...current, [id]: status }))} />}
-            {activeView === "review" && <ReviewView preferences={preferences} statuses={conceptStatuses} estimateAcknowledged={estimateAcknowledged} onNavigate={navigate} />}
+            {activeView === "teachback" && (
+              <TeachBackView
+                statuses={conceptStatuses}
+                workflow={workflow}
+                onResult={recordTeachBack}
+                onVisualizationState={(state) => {
+                  visualizationStateRef.current = state;
+                  setVisualizationState(state);
+                }}
+              />
+            )}
+            {activeView === "review" && <ReviewView preferences={preferences} statuses={conceptStatuses} workflow={workflow} estimateAcknowledged={estimateAcknowledged} onNavigate={navigate} />}
           </div>
 
           <footer className="step-footer">
